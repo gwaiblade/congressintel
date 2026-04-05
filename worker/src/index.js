@@ -1,19 +1,28 @@
 const QUIVER_URL = 'https://api.quiverquant.com/beta/live/congresstrading';
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
 
-function corsHeaders() {
+const ALLOWED_ORIGINS = [
+  'https://gwaiblade.github.io',
+  'http://localhost:5173',
+];
+
+const ALLOWED_MODELS = ['gpt-4o-mini', 'gpt-4o'];
+
+function corsHeaders(request) {
+  const origin = request?.headers?.get('Origin') || '';
+  const allowed = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
   return {
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': allowed,
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, X-App-Token',
     'Access-Control-Max-Age': '86400',
   };
 }
 
-function jsonResponse(data, status = 200) {
+function jsonResponse(data, status = 200, request = null) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { 'Content-Type': 'application/json', ...corsHeaders() },
+    headers: { 'Content-Type': 'application/json', ...corsHeaders(request) },
   });
 }
 
@@ -80,12 +89,15 @@ async function handleAnalyze(request, env) {
   try {
     body = await request.json();
   } catch {
-    return jsonResponse({ error: 'Invalid JSON body' }, 400);
+    return jsonResponse({ error: 'Invalid JSON body' }, 400, request);
   }
 
   const { system, user, model = 'gpt-4o', json_mode = false } = body;
   if (!system || !user) {
-    return jsonResponse({ error: 'Missing system or user prompt' }, 400);
+    return jsonResponse({ error: 'Missing system or user prompt' }, 400, request);
+  }
+  if (!ALLOWED_MODELS.includes(model)) {
+    return jsonResponse({ error: 'Invalid model' }, 400, request);
   }
 
   const payload = {
@@ -112,23 +124,23 @@ async function handleAnalyze(request, env) {
 
   if (!res.ok) {
     const errText = await res.text().catch(() => 'Unknown error');
-    return jsonResponse({ error: `OpenAI error ${res.status}`, detail: errText }, 502);
+    return jsonResponse({ error: `OpenAI error ${res.status}`, detail: errText }, 502, request);
   }
 
   const data = await res.json();
   const content = data.choices?.[0]?.message?.content || '';
-  return jsonResponse({ content });
+  return jsonResponse({ content }, 200, request);
 }
 
 export default {
   async fetch(request, env) {
     if (request.method === 'OPTIONS') {
-      return new Response(null, { status: 204, headers: corsHeaders() });
+      return new Response(null, { status: 204, headers: corsHeaders(request) });
     }
 
     const token = request.headers.get('X-App-Token');
     if (!token || token !== env.APP_TOKEN) {
-      return jsonResponse({ error: 'Unauthorized' }, 401);
+      return jsonResponse({ error: 'Unauthorized' }, 401, request);
     }
 
     const url = new URL(request.url);
@@ -137,9 +149,9 @@ export default {
       try {
         const days = Math.min(parseInt(url.searchParams.get('days') || '30', 10) || 30, 365);
         const trades = await fetchTrades(days);
-        return jsonResponse(trades);
+        return jsonResponse(trades, 200, request);
       } catch (e) {
-        return jsonResponse({ error: 'Failed to fetch trades', detail: e.message }, 500);
+        return jsonResponse({ error: 'Failed to fetch trades', detail: e.message }, 500, request);
       }
     }
 
@@ -147,6 +159,6 @@ export default {
       return handleAnalyze(request, env);
     }
 
-    return jsonResponse({ error: 'Not found' }, 404);
+    return jsonResponse({ error: 'Not found' }, 404, request);
   },
 };
