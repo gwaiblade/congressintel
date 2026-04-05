@@ -1,0 +1,9 @@
+name = "congressintel-api"
+main = "src/index.js"
+compatibility_date = "2024-12-01"
+
+[vars]
+# Set OPENAI_API_KEY and APP_TOKEN as secrets via:
+#   wrangler secret put OPENAI_API_KEY
+#   wrangler secret put APP_TOKEN
+# Or add them in Cloudflare Dashboard → Worker → Settings → Variables
