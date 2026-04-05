@@ -1,5 +1,4 @@
-const HOUSE_URL = 'https://house-stock-watcher-data.s3-us-west-2.amazonaws.com/data/fillings.json';
-const SENATE_URL = 'https://senate-stock-watcher-data.s3-us-west-2.amazonaws.com/data/fillings.json';
+const QUIVER_URL = 'https://api.quiverquant.com/beta/live/congresstrading';
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
 
 function corsHeaders() {
@@ -20,19 +19,11 @@ function jsonResponse(data, status = 200) {
 
 function parseDate(str) {
   if (!str) return null;
-  // Handle MM/DD/YYYY
-  const slashParts = str.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-  if (slashParts) return new Date(parseInt(slashParts[3]), parseInt(slashParts[1]) - 1, parseInt(slashParts[2]));
-  // Handle YYYY-MM-DD
   const dashParts = str.match(/(\d{4})-(\d{2})-(\d{2})/);
   if (dashParts) return new Date(parseInt(dashParts[1]), parseInt(dashParts[2]) - 1, parseInt(dashParts[3]));
+  const slashParts = str.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (slashParts) return new Date(parseInt(slashParts[3]), parseInt(slashParts[1]) - 1, parseInt(slashParts[2]));
   return null;
-}
-
-function formatDate(str) {
-  const d = parseDate(str);
-  if (!d || isNaN(d.getTime())) return str || '';
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 function daysBetween(a, b) {
@@ -43,63 +34,35 @@ function daysBetween(a, b) {
 async function fetchTrades(days) {
   const now = new Date();
   const cutoff = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+
+  const res = await fetch(QUIVER_URL, {
+    headers: { 'Accept': 'application/json' },
+  });
+
+  if (!res.ok) throw new Error(`Quiver API error: ${res.status}`);
+
+  const data = await res.json();
   const trades = [];
 
-  const [houseRes, senateRes] = await Promise.all([
-    fetch(HOUSE_URL).catch(() => null),
-    fetch(SENATE_URL).catch(() => null),
-  ]);
+  for (const t of data) {
+    const disc = parseDate(t.ReportDate);
+    const trans = parseDate(t.TransactionDate);
+    if (!disc || disc < cutoff) continue;
+    if (!t.Ticker || t.Ticker === '--' || t.Ticker === 'N/A') continue;
 
-  if (houseRes?.ok) {
-    try {
-      const data = await houseRes.json();
-      for (const t of data) {
-        const disc = parseDate(t.disclosure_date);
-        const trans = parseDate(t.transaction_date);
-        if (!disc || disc < cutoff) continue;
-        if (!t.ticker || t.ticker === '--' || t.ticker === 'N/A' || t.ticker === '') continue;
-        trades.push({
-          member: (t.representative || '').replace(/^Hon\.\s*/i, '').trim(),
-          chamber: 'House',
-          state: t.district ? t.district.slice(0, 2).toUpperCase() : '',
-          ticker: t.ticker.toUpperCase(),
-          company: t.asset_description || '',
-          type: /purchase/i.test(t.type) ? 'Buy' : 'Sell',
-          amount: t.amount || '',
-          transactionDate: formatDate(t.transaction_date),
-          disclosureDate: formatDate(t.disclosure_date),
-          daysLate: daysBetween(disc, trans),
-        });
-      }
-    } catch (e) {
-      console.error('House parse error:', e.message);
-    }
-  }
-
-  if (senateRes?.ok) {
-    try {
-      const data = await senateRes.json();
-      for (const t of data) {
-        const disc = parseDate(t.disclosure_date);
-        const trans = parseDate(t.transaction_date);
-        if (!disc || disc < cutoff) continue;
-        if (!t.ticker || t.ticker === '--' || t.ticker === 'N/A' || t.ticker === '') continue;
-        trades.push({
-          member: (t.senator || '').trim(),
-          chamber: 'Senate',
-          state: '',
-          ticker: t.ticker.toUpperCase(),
-          company: t.asset_description || '',
-          type: /purchase/i.test(t.type) ? 'Buy' : 'Sell',
-          amount: t.amount || '',
-          transactionDate: formatDate(t.transaction_date),
-          disclosureDate: formatDate(t.disclosure_date),
-          daysLate: daysBetween(disc, trans),
-        });
-      }
-    } catch (e) {
-      console.error('Senate parse error:', e.message);
-    }
+    trades.push({
+      member: (t.Representative || '').trim(),
+      chamber: t.House === 'Senate' ? 'Senate' : 'House',
+      party: t.Party || '',
+      state: '',
+      ticker: t.Ticker.toUpperCase(),
+      company: t.Description || t.Ticker,
+      type: /purchase/i.test(t.Transaction) ? 'Buy' : 'Sell',
+      amount: t.Range || '',
+      transactionDate: t.TransactionDate || '',
+      disclosureDate: t.ReportDate || '',
+      daysLate: daysBetween(disc, trans),
+    });
   }
 
   // Sort by disclosure date descending
@@ -159,12 +122,10 @@ async function handleAnalyze(request, env) {
 
 export default {
   async fetch(request, env) {
-    // CORS preflight
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: corsHeaders() });
     }
 
-    // Auth check
     const token = request.headers.get('X-App-Token');
     if (!token || token !== env.APP_TOKEN) {
       return jsonResponse({ error: 'Unauthorized' }, 401);

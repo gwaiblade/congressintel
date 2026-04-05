@@ -532,22 +532,22 @@ export default function CongressIntel() {
   const runQuickScan = async () => {
     setPhase("scanning"); setError("");
     try {
-      // Step 1: Fetch real trades from the worker
+      // Fetch real trades from Quiver Quant via worker
       const rawTrades = await fetchTrades(30);
       if (!rawTrades.length) throw new Error("No recent trades found in disclosure feeds.");
 
-      // Step 2: Score trades with AI (gpt-4o-mini + JSON mode)
+      // Score trades with AI — enrich with committee, sector, state, and risk score
       const text = await callAnalyze(
-        "You are a U.S. congressional trading intelligence analyst. Analyze real congressional stock disclosures and score each for insider risk. Return ONLY a valid JSON object.",
-        `Score these congressional stock trades for insider risk potential. For each trade, determine the member's likely party affiliation (R or D), their most relevant committee assignment, the stock's sector, and assign an insider risk score from 1.0 to 10.0 based on: committee relevance to the traded sector, trade size, filing delay, and timing signals.
+        "You are a U.S. congressional trading intelligence analyst. Score real congressional stock disclosures for insider risk. Return ONLY a valid JSON object.",
+        `Score these real congressional stock trades for insider risk potential. Each trade already has member name, party, chamber, ticker, type, amount, and filing dates. For each trade, add the member's state (2-letter), most relevant committee assignment, the stock's sector, and assign an insider risk score from 1.0 to 10.0 based on: committee relevance to the traded sector, trade size, filing delay, and timing signals.
 
-Raw trades:
+Real trades data:
 ${JSON.stringify(rawTrades.slice(0, 20))}
 
 Return a JSON object with this exact structure:
 {"trades":[{"id":<sequential 1-N>,"member":"<name>","party":"<R|D>","chamber":"<House|Senate>","state":"<2-letter>","committee":"<most relevant committee>","ticker":"<TICKER>","company":"<company name>","sector":"<sector>","type":"<Buy|Sell>","amount":"<amount range>","disclosedDate":"<YYYY-MM-DD>","daysLate":<number>,"score":<1.0-10.0>,"scoreReason":"<one sentence>"}]}
 
-Be accurate with party affiliations and committee assignments. Score honestly based on the actual risk signals.`,
+Use the real party affiliations provided. Be accurate with state and committee assignments. Score honestly based on the actual risk signals in the data.`,
         "gpt-4o-mini",
         true
       );
