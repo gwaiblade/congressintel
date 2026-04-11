@@ -3,14 +3,34 @@ import { useState, useEffect } from "react";
 const WORKER_URL = import.meta.env.VITE_WORKER_URL || "http://localhost:8787";
 const APP_TOKEN = import.meta.env.VITE_APP_TOKEN || "";
 
+/* -- THEME ------------------------------------------------- */
 const T = {
-  bg: "#050608", surface: "#08090e", surface2: "#0d0f16",
-  border: "#181d2a", borderBright: "#252d42",
-  gold: "#f0c040", goldMid: "#c49a30", goldDim: "#5a4512", goldFaint: "#100d02",
-  text: "#d8e4f0", text2: "#7a90a8", text3: "#3a4858",
-  green: "#27c96e", red: "#e8404a", orange: "#f5963a",
+  bg:       "#f4f6f9",
+  surface:  "#ffffff",
+  surface2: "#edf0f5",
+  border:   "#d8dde6",
+  borderHi: "#b8c0cc",
+  navy:     "#1e3560",
+  navyMid:  "#2a4a80",
+  navyFaint:"#eef1f8",
+  text:     "#1a2535",
+  text2:    "#4a5a6e",
+  text3:    "#8a98a8",
+  green:    "#0a7a45",
+  greenBg:  "#e8f7f0",
+  red:      "#c0302a",
+  redBg:    "#fdf0ef",
+  orange:   "#c8620a",
+  orangeBg: "#fdf4e8",
+  amber:    "#c8960a",
+  amberBg:  "#fdf8e8",
 };
 
+const FONT_BODY = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+const FONT_MONO = "'Courier New', Courier, monospace";
+const FONT_SERIF = "Georgia, 'Times New Roman', serif";
+
+/* -- API (via Cloudflare Worker) --------------------------- */
 async function workerFetch(path, options = {}) {
   const res = await fetch(`${WORKER_URL}${path}`, {
     ...options,
@@ -42,8 +62,7 @@ async function callAnalyze(system, user, model = "gpt-4o", jsonMode = false) {
 function parseJSON(text) {
   try {
     const clean = text.replace(/```json\n?|```\n?/g, "").trim();
-    const start = clean.search(/[\[{]/);
-    return JSON.parse(clean.slice(start));
+    return JSON.parse(clean.slice(clean.search(/[\[{]/)));
   } catch {
     const m = text.match(/\[[\s\S]*\]|\{[\s\S]*\}/);
     if (m) return JSON.parse(m[0]);
@@ -51,11 +70,18 @@ function parseJSON(text) {
   }
 }
 
+/* -- HELPERS ----------------------------------------------- */
 function scoreColor(s) {
   if (s >= 7.5) return T.red;
   if (s >= 5.5) return T.orange;
-  if (s >= 3.5) return T.gold;
-  return T.text2;
+  if (s >= 3.5) return T.amber;
+  return T.text3;
+}
+function scoreBg(s) {
+  if (s >= 7.5) return T.redBg;
+  if (s >= 5.5) return T.orangeBg;
+  if (s >= 3.5) return T.amberBg;
+  return T.surface2;
 }
 function scoreLabel(s) {
   if (s >= 8) return "HIGH ALERT";
@@ -63,83 +89,75 @@ function scoreLabel(s) {
   if (s >= 4) return "MODERATE";
   return "LOW";
 }
-function partyColor(p) { return p === "R" ? "#e05555" : "#5aaaf0"; }
+function partyColor(p) { return p === "R" ? "#c0302a" : "#2a6ab0"; }
+function partyBg(p)    { return p === "R" ? "#fdf0ef" : "#eef4fc"; }
 
 const STEPS = [
-  { id: 1, key: "roles",     label: "COMMITTEE ROLES" },
-  { id: 2, key: "influence", label: "LEGISLATIVE INFLUENCE" },
-  { id: 3, key: "sizing",    label: "TRADE SIZING & PATTERN" },
-  { id: 4, key: "news",      label: "NEWS CONTEXT" },
-  { id: 5, key: "valuation", label: "VALUATION SNAPSHOT" },
-  { id: 6, key: "verdict",   label: "VERDICT & ACTION" },
+  { id:1, key:"roles",     label:"Committee Roles" },
+  { id:2, key:"influence", label:"Legislative Influence" },
+  { id:3, key:"sizing",    label:"Trade Sizing & Pattern" },
+  { id:4, key:"news",      label:"News Context" },
+  { id:5, key:"valuation", label:"Valuation Snapshot" },
+  { id:6, key:"verdict",   label:"Verdict & Action" },
 ];
 
-function CornerBox({ children, style = {} }) {
-  return (
-    <div style={{ position: "relative", border: `1px solid ${T.borderBright}`, ...style }}>
-      {[
-        { top:"10px", left:"10px",  borderTop:`2px solid ${T.gold}`, borderLeft:`2px solid ${T.gold}` },
-        { top:"10px", right:"10px", borderTop:`2px solid ${T.gold}`, borderRight:`2px solid ${T.gold}` },
-        { bottom:"10px", left:"10px",  borderBottom:`2px solid ${T.gold}`, borderLeft:`2px solid ${T.gold}` },
-        { bottom:"10px", right:"10px", borderBottom:`2px solid ${T.gold}`, borderRight:`2px solid ${T.gold}` },
-      ].map((c, i) => (
-        <div key={i} style={{ position:"absolute", width:"14px", height:"14px", ...c }} />
-      ))}
-      {children}
-    </div>
-  );
-}
-
-/* -- IDLE ------------------------------------------------ */
-function IdleScreen({ onScan, error, isMobile }) {
+/* -- IDLE -------------------------------------------------- */
+function IdleScreen({ onScan, error }) {
   return (
     <div>
-      <CornerBox style={{ padding: isMobile ? "32px 20px" : "56px 52px", marginBottom: "28px" }}>
-        <div style={{ fontFamily:"Georgia,serif", fontSize:"20px", color:T.gold, marginBottom:"22px", letterSpacing:"0.08em" }}>
-          SYSTEM READY
+      <div style={{ background:T.surface, border:`1px solid ${T.border}`,
+        borderTop:`3px solid ${T.navy}`, borderRadius:"4px",
+        padding:"40px 36px", marginBottom:"20px" }}>
+        <div style={{ fontFamily:FONT_SERIF, fontSize:"22px", color:T.navy,
+          marginBottom:"16px", fontWeight:"bold" }}>
+          System Ready
         </div>
-        <div style={{ fontSize:"15px", color:T.text2, lineHeight:"2.0", maxWidth:"660px" }}>
-          CongressIntel runs a two-tier intelligence pipeline on U.S. congressional stock
-          disclosures, surfacing trades with elevated insider risk potential.<br/><br/>
-          <span style={{color:T.text}}>&#9654; TIER 1 — QUICK SCAN:</span> Scores all recent disclosures
-          across committee relevance, trade size, timing, and late-filing delay.<br/>
-          <span style={{color:T.text}}>&#9654; TIER 2 — DEEP ANALYSIS:</span> Six-step pipeline —
-          committee roles, legislative influence, trade patterns, news context,
-          valuation, and retail action guidance.
+        <div style={{ fontSize:"15px", color:T.text2, lineHeight:"1.8", maxWidth:"640px" }}>
+          CongressIntel monitors U.S. congressional stock disclosures and runs a
+          two-tier intelligence pipeline to surface trades with elevated insider risk.
         </div>
-        {!isMobile ? (
-          <div style={{ marginTop:"40px" }}>
-            <button
-              onClick={onScan}
-              style={{ background:T.goldFaint, border:`1px solid ${T.goldMid}`, color:T.gold,
-                padding:"15px 44px", fontSize:"14px", letterSpacing:"0.2em",
-                cursor:"pointer", fontFamily:"'Courier New',monospace" }}
-              onMouseEnter={(e)=>{ e.target.style.background=T.goldDim; e.target.style.borderColor=T.gold; }}
-              onMouseLeave={(e)=>{ e.target.style.background=T.goldFaint; e.target.style.borderColor=T.goldMid; }}>
-              &#9654; RUN QUICK SCAN
-            </button>
-          </div>
-        ) : (
-          <div style={{ marginTop:"24px", fontSize:"13px", color:T.goldMid,
-            border:`1px solid ${T.goldDim}`, padding:"12px 16px", display:"inline-block" }}>
-            &#9888; DESKTOP REQUIRED TO RUN ANALYSIS
-          </div>
-        )}
-      </CornerBox>
+        <div style={{ marginTop:"24px", display:"flex", flexDirection:"column", gap:"12px" }}>
+          {[
+            ["Tier 1 — Quick Scan", "Scores all recent disclosures across committee relevance, trade size, timing, and late-filing delay."],
+            ["Tier 2 — Deep Analysis", "Six-step pipeline: committee roles, legislative influence, trade patterns, news context, valuation, and retail action guidance."],
+          ].map(([title, desc]) => (
+            <div key={title} style={{ display:"flex", gap:"14px", padding:"14px 16px",
+              background:T.navyFaint, borderRadius:"4px", border:`1px solid ${T.border}` }}>
+              <div style={{ width:"8px", height:"8px", borderRadius:"50%",
+                background:T.navy, flexShrink:0, marginTop:"6px" }}/>
+              <div>
+                <div style={{ fontSize:"14px", fontWeight:"600", color:T.navy, marginBottom:"4px" }}>
+                  {title}
+                </div>
+                <div style={{ fontSize:"14px", color:T.text2 }}>{desc}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{ marginTop:"32px" }}>
+          <button onClick={onScan}
+            style={{ background:T.navy, border:"none", color:"#fff",
+              padding:"14px 36px", fontSize:"15px", fontWeight:"600",
+              borderRadius:"4px", cursor:"pointer", fontFamily:FONT_BODY,
+              letterSpacing:"0.02em", minWidth:"180px" }}>
+            Run Quick Scan
+          </button>
+        </div>
+      </div>
       {error && (
-        <div style={{ border:`1px solid ${T.red}`, background:"rgba(232,64,74,0.06)",
-          padding:"14px 18px", fontSize:"14px", color:T.red, marginBottom:"16px" }}>
-          &#9632; ERROR: {error}
+        <div style={{ background:T.redBg, border:`1px solid ${T.red}`,
+          borderRadius:"4px", padding:"14px 18px", fontSize:"14px", color:T.red }}>
+          Error: {error}
         </div>
       )}
-      <div style={{ fontSize:"12px", color:T.text3, lineHeight:"1.8" }}>
-        EDUCATIONAL USE ONLY · Illustrative examples · Not financial advice
+      <div style={{ fontSize:"12px", color:T.text3, lineHeight:"1.7" }}>
+        Educational use only · Real STOCK Act disclosure data · Not financial advice
       </div>
     </div>
   );
 }
 
-/* -- SCANNING -------------------------------------------- */
+/* -- SCANNING ---------------------------------------------- */
 function ScanningScreen() {
   const [lines, setLines] = useState(["Initializing intelligence protocol..."]);
   const [dots, setDots] = useState(0);
@@ -159,270 +177,372 @@ function ScanningScreen() {
     return () => { clearInterval(t); clearInterval(d); };
   }, []);
   return (
-    <div style={{ border:`1px solid ${T.border}`, padding:"36px", minHeight:"300px" }}>
-      <div style={{ color:T.gold, fontSize:"15px", letterSpacing:"0.18em", marginBottom:"28px" }}>
-        &#9632; SCANNING{".".repeat(dots)}
+    <div style={{ background:T.surface, border:`1px solid ${T.border}`,
+      borderTop:`3px solid ${T.navy}`, borderRadius:"4px",
+      padding:"36px", minHeight:"280px" }}>
+      <div style={{ fontSize:"13px", fontWeight:"600", color:T.navy,
+        letterSpacing:"0.12em", marginBottom:"24px", fontFamily:FONT_MONO }}>
+        SCANNING{".".repeat(dots)}
       </div>
       {lines.map((l, i) => (
-        <div key={i} style={{ fontSize:"14px", color:i===lines.length-1?T.text:T.text2,
-          marginBottom:"11px", paddingLeft:"16px",
-          borderLeft:`2px solid ${i===lines.length-1?T.goldMid:T.border}` }}>
-          {i < lines.length-1 ? `\u2713 ${l}` : `\u25B6 ${l}`}
+        <div key={i} style={{ fontSize:"14px",
+          color: i===lines.length-1 ? T.navy : T.text2,
+          marginBottom:"10px", paddingLeft:"16px",
+          borderLeft:`3px solid ${i===lines.length-1 ? T.navy : T.border}`,
+          fontWeight: i===lines.length-1 ? "500" : "400" }}>
+          {i < lines.length-1 ? `\u2713  ${l}` : `\u2192  ${l}`}
         </div>
       ))}
     </div>
   );
 }
 
-/* -- QUICK SCAN ------------------------------------------ */
+/* -- TRADE CARD (mobile) ----------------------------------- */
+function TradeCard({ trade, isSelected, onToggle }) {
+  const sc = scoreColor(trade.score);
+  const sb = scoreBg(trade.score);
+  return (
+    <div onClick={onToggle}
+      style={{ background: isSelected ? T.navyFaint : T.surface,
+        border: `1px solid ${isSelected ? T.navy : T.border}`,
+        borderLeft: `4px solid ${sc}`,
+        borderRadius:"4px", padding:"16px", cursor:"pointer",
+        transition:"all 0.15s" }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
+        <div style={{ flex:1, minWidth:0 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:"8px", flexWrap:"wrap", marginBottom:"6px" }}>
+            <span style={{ fontSize:"16px", fontWeight:"700",
+              fontFamily:FONT_MONO, color:T.navy }}>{trade.ticker}</span>
+            <span style={{ fontSize:"13px", color:T.text2 }}>{trade.company}</span>
+          </div>
+          <div style={{ fontSize:"14px", fontWeight:"600", color:T.text, marginBottom:"8px" }}>
+            {trade.member}
+          </div>
+          <div style={{ display:"flex", flexWrap:"wrap", gap:"8px" }}>
+            <span style={{ fontSize:"12px", padding:"2px 8px", borderRadius:"3px",
+              background:partyBg(trade.party), color:partyColor(trade.party), fontWeight:"600" }}>
+              {trade.party}-{trade.state}
+            </span>
+            <span style={{ fontSize:"12px", padding:"2px 8px", borderRadius:"3px",
+              background:T.surface2, color:T.text2 }}>{trade.chamber}</span>
+            <span style={{ fontSize:"12px", padding:"2px 8px", borderRadius:"3px",
+              background: trade.type==="Buy" ? T.greenBg : T.redBg,
+              color: trade.type==="Buy" ? T.green : T.red, fontWeight:"600" }}>
+              {trade.type==="Buy" ? "\u25B2 Buy" : "\u25BC Sell"}
+            </span>
+            <span style={{ fontSize:"12px", color:T.text2 }}>{trade.amount}</span>
+          </div>
+          <div style={{ fontSize:"12px", color:T.text3, marginTop:"6px" }}>{trade.committee}</div>
+        </div>
+        <div style={{ textAlign:"center", marginLeft:"14px", flexShrink:0 }}>
+          <div style={{ width:"56px", height:"56px", borderRadius:"6px",
+            background:sb, border:`1px solid ${sc}20`,
+            display:"flex", flexDirection:"column",
+            alignItems:"center", justifyContent:"center" }}>
+            <div style={{ fontSize:"20px", fontWeight:"800",
+              fontFamily:FONT_MONO, color:sc, lineHeight:1 }}>
+              {trade.score.toFixed(1)}
+            </div>
+            <div style={{ fontSize:"8px", color:sc, letterSpacing:"0.06em",
+              marginTop:"2px", fontWeight:"600" }}>
+              {scoreLabel(trade.score)}
+            </div>
+          </div>
+          {isSelected && (
+            <div style={{ fontSize:"11px", color:T.navy, marginTop:"6px", fontWeight:"600" }}>
+              {"\u2713"} Selected
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* -- QUICK SCAN -------------------------------------------- */
 function QuickScanScreen({ trades, selected, setSelected, onAnalyze, isMobile }) {
-  const toggle = (id) => {
-    if (isMobile) return;
-    setSelected((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  };
+  const toggle = (id) => setSelected((prev) => {
+    const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n;
+  });
   const sorted = [...trades].sort((a, b) => b.score - a.score);
 
   return (
     <div>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start",
-        marginBottom:"22px", flexWrap:"wrap", gap:"14px" }}>
+      {/* Header row */}
+      <div style={{ display:"flex", justifyContent:"space-between",
+        alignItems:"flex-start", marginBottom:"20px", flexWrap:"wrap", gap:"12px" }}>
         <div>
-          <div style={{ fontFamily:"Georgia,serif", color:T.gold,
-            fontSize:isMobile?"18px":"24px", letterSpacing:"0.08em" }}>
-            QUICK SCAN RESULTS
+          <div style={{ fontFamily:FONT_SERIF, color:T.navy,
+            fontSize:isMobile?"20px":"24px", fontWeight:"bold" }}>
+            Quick Scan Results
           </div>
-          <div style={{ fontSize:"13px", color:T.text2, marginTop:"6px" }}>
-            {trades.length} trades · ranked by insider risk
-            {!isMobile && " · click rows to select for deep analysis"}
+          <div style={{ fontSize:"14px", color:T.text2, marginTop:"4px" }}>
+            {trades.length} trades ranked by insider risk
+            {selected.size > 0 && ` \u00B7 ${selected.size} selected`}
           </div>
         </div>
-        {!isMobile && selected.size > 0 && (
+        {selected.size > 0 && (
           <button onClick={onAnalyze}
-            style={{ background:T.goldFaint, border:`1px solid ${T.gold}`, color:T.gold,
-              padding:"12px 30px", fontSize:"14px", letterSpacing:"0.15em",
-              cursor:"pointer", fontFamily:"'Courier New',monospace" }}>
-            &#9654; DEEP ANALYZE ({selected.size})
+            style={{ background:T.navy, border:"none", color:"#fff",
+              padding:isMobile?"12px 20px":"12px 28px",
+              fontSize:"14px", fontWeight:"600", borderRadius:"4px",
+              cursor:"pointer", fontFamily:FONT_BODY, whiteSpace:"nowrap" }}>
+            Deep Analyze ({selected.size})
           </button>
         )}
       </div>
 
-      {/* Legend */}
-      <div style={{ display:"flex", gap:"20px", marginBottom:"16px", flexWrap:"wrap" }}>
-        {[[T.red,"HIGH ALERT","8+"],[T.orange,"ELEVATED","6-8"],[T.gold,"MODERATE","4-6"],[T.text2,"LOW","0-4"]].map(([c,l,r]) => (
-          <div key={l} style={{ display:"flex", alignItems:"center", gap:"7px", fontSize:"12px" }}>
-            <div style={{ width:"8px", height:"8px", borderRadius:"50%", background:c }}/>
-            <span style={{ color:c }}>{l}</span>
-            <span style={{ color:T.text3 }}>({r})</span>
+      {/* Risk legend */}
+      <div style={{ display:"flex", gap:"16px", marginBottom:"16px",
+        flexWrap:"wrap", padding:"12px 16px",
+        background:T.surface, border:`1px solid ${T.border}`, borderRadius:"4px" }}>
+        <span style={{ fontSize:"12px", color:T.text2, fontWeight:"600" }}>RISK LEVELS:</span>
+        {[[T.red,"High Alert","8+"], [T.orange,"Elevated","6\u20138"],
+          [T.amber,"Moderate","4\u20136"], [T.text3,"Low","0\u20134"]].map(([c,l,r]) => (
+          <div key={l} style={{ display:"flex", alignItems:"center", gap:"6px" }}>
+            <div style={{ width:"10px", height:"10px", borderRadius:"50%", background:c }}/>
+            <span style={{ fontSize:"13px", color:T.text2 }}>
+              <strong style={{ color:c }}>{l}</strong> ({r})
+            </span>
           </div>
         ))}
       </div>
 
-      {/* Table */}
-      <div style={{ border:`1px solid ${T.border}` }}>
-        {/* Header */}
-        <div style={{ display:"grid",
-          gridTemplateColumns: isMobile ? "1fr auto" : "28px 190px 1fr 80px 120px 120px 90px",
-          padding:"10px 14px", borderBottom:`1px solid ${T.borderBright}`,
-          background:T.surface2, fontSize:"11px", color:T.text2, letterSpacing:"0.15em" }}>
-          {!isMobile && <span/>}
-          <span>MEMBER</span>
-          {!isMobile && <span>TICKER · COMPANY</span>}
-          {!isMobile && <span>TYPE</span>}
-          {!isMobile && <span>AMOUNT</span>}
-          {!isMobile && <span>DISCLOSED</span>}
-          <span style={{ textAlign:"right" }}>SCORE</span>
+      {/* Mobile: cards */}
+      {isMobile ? (
+        <div style={{ display:"flex", flexDirection:"column", gap:"10px" }}>
+          {sorted.map((t) => (
+            <TradeCard key={t.id} trade={t}
+              isSelected={selected.has(t.id)}
+              onToggle={() => toggle(t.id)} />
+          ))}
         </div>
-
-        {sorted.map((t, idx) => {
-          const isSel = selected.has(t.id);
-          const sc = scoreColor(t.score);
-          return (
-            <div key={t.id} onClick={() => toggle(t.id)}
-              style={{ display:"grid",
-                gridTemplateColumns: isMobile ? "1fr auto" : "28px 190px 1fr 80px 120px 120px 90px",
-                padding: isMobile ? "14px" : "12px 14px",
-                borderBottom: idx < sorted.length-1 ? `1px solid ${T.border}` : "none",
-                background: isSel ? "rgba(240,192,64,0.07)" : idx%2===0 ? T.surface : T.bg,
-                cursor: isMobile ? "default" : "pointer",
-                alignItems: "center" }}>
-
-              {!isMobile && (
-                <div style={{ width:"16px", height:"16px",
-                  border:`1px solid ${isSel?T.gold:T.borderBright}`,
-                  background: isSel ? T.goldDim : "transparent",
+      ) : (
+        /* Desktop: table */
+        <div style={{ background:T.surface, border:`1px solid ${T.border}`,
+          borderRadius:"4px", overflow:"hidden" }}>
+          <div style={{ display:"grid",
+            gridTemplateColumns:"32px 200px 1fr 90px 120px 130px 100px",
+            padding:"10px 16px", background:T.surface2,
+            borderBottom:`1px solid ${T.border}`,
+            fontSize:"11px", fontWeight:"700", color:T.text2,
+            letterSpacing:"0.08em", textTransform:"uppercase" }}>
+            <span/><span>Member</span><span>{"Ticker \u00B7 Company"}</span>
+            <span>Type</span><span>Amount</span><span>Disclosed</span>
+            <span style={{textAlign:"right"}}>Risk Score</span>
+          </div>
+          {sorted.map((t, idx) => {
+            const isSel = selected.has(t.id);
+            const sc = scoreColor(t.score);
+            const sb = scoreBg(t.score);
+            return (
+              <div key={t.id} onClick={() => toggle(t.id)}
+                style={{ display:"grid",
+                  gridTemplateColumns:"32px 200px 1fr 90px 120px 130px 100px",
+                  padding:"12px 16px",
+                  borderBottom: idx < sorted.length-1 ? `1px solid ${T.border}` : "none",
+                  background: isSel ? T.navyFaint : "transparent",
+                  cursor:"pointer", alignItems:"center",
+                  transition:"background 0.12s" }}>
+                <div style={{ width:"18px", height:"18px", borderRadius:"3px",
+                  border:`2px solid ${isSel ? T.navy : T.borderHi}`,
+                  background: isSel ? T.navy : "transparent",
                   display:"flex", alignItems:"center", justifyContent:"center" }}>
-                  {isSel && <span style={{ fontSize:"11px", color:T.gold }}>{"\u2713"}</span>}
+                  {isSel && <span style={{ color:"#fff", fontSize:"11px", lineHeight:1 }}>{"\u2713"}</span>}
                 </div>
-              )}
-
-              <div>
-                <div style={{ fontSize:"14px", color:T.text, fontFamily:"Georgia,serif" }}>
-                  {t.member}
-                </div>
-                <div style={{ fontSize:"12px", marginTop:"4px", display:"flex", gap:"10px" }}>
-                  <span style={{ color:partyColor(t.party) }}>{t.party}-{t.state}</span>
-                  <span style={{ color:T.text2 }}>{t.chamber}</span>
-                  {isMobile && <span style={{ color:t.type==="Buy"?T.green:T.red }}>{t.type}</span>}
-                  {isMobile && <span style={{ color:T.text }}>{t.ticker}</span>}
-                </div>
-                {isMobile && (
-                  <div style={{ fontSize:"11px", color:T.text2, marginTop:"4px" }}>{t.committee}</div>
-                )}
-              </div>
-
-              {!isMobile && (
                 <div>
-                  <span style={{ fontSize:"15px", color:T.text, fontFamily:"'Courier New',monospace" }}>{t.ticker}</span>
-                  <span style={{ fontSize:"13px", color:T.text2, marginLeft:"12px" }}>{t.company}</span>
+                  <div style={{ fontSize:"14px", fontWeight:"600", color:T.text }}>
+                    {t.member}
+                  </div>
+                  <div style={{ display:"flex", gap:"6px", marginTop:"4px", flexWrap:"wrap" }}>
+                    <span style={{ fontSize:"11px", padding:"1px 6px", borderRadius:"3px",
+                      background:partyBg(t.party), color:partyColor(t.party), fontWeight:"700" }}>
+                      {t.party}-{t.state}
+                    </span>
+                    <span style={{ fontSize:"11px", color:T.text3 }}>{t.chamber}</span>
+                  </div>
+                </div>
+                <div>
+                  <div style={{ display:"flex", alignItems:"baseline", gap:"10px" }}>
+                    <span style={{ fontSize:"15px", fontWeight:"700",
+                      fontFamily:FONT_MONO, color:T.navy }}>{t.ticker}</span>
+                    <span style={{ fontSize:"13px", color:T.text2 }}>{t.company}</span>
+                  </div>
                   <div style={{ fontSize:"11px", color:T.text3, marginTop:"3px" }}>{t.committee}</div>
                 </div>
-              )}
-
-              {!isMobile && (
-                <div style={{ fontSize:"13px", color:t.type==="Buy"?T.green:T.red,
-                  fontFamily:"'Courier New',monospace" }}>
-                  {t.type==="Buy" ? "\u25B2 BUY" : "\u25BC SELL"}
+                <div style={{ fontSize:"13px", fontWeight:"600",
+                  color: t.type==="Buy" ? T.green : T.red }}>
+                  {t.type==="Buy" ? "\u25B2 Buy" : "\u25BC Sell"}
                 </div>
-              )}
-
-              {!isMobile && (
                 <div style={{ fontSize:"13px", color:T.text2 }}>{t.amount}</div>
-              )}
-
-              {!isMobile && (
                 <div>
                   <div style={{ fontSize:"13px", color:T.text2 }}>{t.disclosedDate}</div>
                   {t.daysLate > 20 && (
-                    <div style={{ fontSize:"11px", color:T.orange, marginTop:"3px" }}>+{t.daysLate}d late</div>
+                    <div style={{ fontSize:"11px", color:T.orange, marginTop:"2px",
+                      fontWeight:"600" }}>+{t.daysLate}d late</div>
                   )}
                 </div>
-              )}
+                <div style={{ textAlign:"right" }}>
+                  <div style={{ display:"inline-flex", flexDirection:"column",
+                    alignItems:"center", padding:"6px 10px", borderRadius:"4px",
+                    background:sb, minWidth:"60px" }}>
+                    <span style={{ fontSize:"18px", fontWeight:"800",
+                      fontFamily:FONT_MONO, color:sc, lineHeight:1 }}>
+                      {t.score.toFixed(1)}
+                    </span>
+                    <span style={{ fontSize:"9px", color:sc,
+                      fontWeight:"700", letterSpacing:"0.06em", marginTop:"2px" }}>
+                      {scoreLabel(t.score)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
-              <div style={{ textAlign:"right" }}>
-                <div style={{ fontSize: isMobile?"20px":"22px", color:sc,
-                  fontFamily:"'Courier New',monospace", fontWeight:"bold" }}>
-                  {t.score.toFixed(1)}
+      {/* Top risk note */}
+      {sorted[0] && selected.size === 0 && (
+        <div style={{ marginTop:"14px", padding:"12px 16px",
+          background:T.amberBg, border:`1px solid ${T.amber}40`,
+          borderRadius:"4px", fontSize:"14px", color:T.text2 }}>
+          <strong style={{ color:T.amber }}>Highest Risk: {sorted[0].ticker}</strong>
+          {" \u00B7 "}{sorted[0].scoreReason}
+        </div>
+      )}
+
+      {/* Sticky bottom CTA on mobile */}
+      {isMobile && selected.size > 0 && (
+        <div style={{ position:"sticky", bottom:"16px", marginTop:"16px",
+          padding:"12px 16px", background:T.navy,
+          borderRadius:"6px", textAlign:"center" }}>
+          <button onClick={onAnalyze}
+            style={{ background:"transparent", border:"none", color:"#fff",
+              fontSize:"15px", fontWeight:"700", cursor:"pointer",
+              fontFamily:FONT_BODY, width:"100%" }}>
+            Run Deep Analysis — {selected.size} trade{selected.size>1?"s":""} selected
+          </button>
+        </div>
+      )}
+
+      {!isMobile && selected.size > 0 && (
+        <div style={{ marginTop:"20px", textAlign:"right" }}>
+          <button onClick={onAnalyze}
+            style={{ background:T.navy, border:"none", color:"#fff",
+              padding:"14px 36px", fontSize:"15px", fontWeight:"600",
+              borderRadius:"4px", cursor:"pointer", fontFamily:FONT_BODY }}>
+            Run Deep Analysis ({selected.size} selected)
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* -- ANALYZING --------------------------------------------- */
+function AnalyzingScreen({ trade, step, results }) {
+  if (!trade) return null;
+  return (
+    <div>
+      <div style={{ marginBottom:"24px" }}>
+        <div style={{ fontFamily:FONT_SERIF, color:T.navy,
+          fontSize:"24px", fontWeight:"bold" }}>
+          Deep Analysis Pipeline
+        </div>
+        <div style={{ fontSize:"15px", color:T.text2, marginTop:"6px" }}>
+          {trade.member}{" \u00B7 "}{trade.type==="Buy" ? "\u25B2 Buy" : "\u25BC Sell"} {trade.ticker}{" \u00B7 "}{trade.amount}
+        </div>
+      </div>
+      <div style={{ display:"flex", flexDirection:"column", gap:"8px" }}>
+        {STEPS.map((s) => {
+          const done = step > s.id, active = step === s.id;
+          return (
+            <div key={s.id} style={{ display:"flex", gap:"14px" }}>
+              <div style={{ flexShrink:0, width:"32px", height:"32px", borderRadius:"50%",
+                border:`2px solid ${done ? T.green : active ? T.navy : T.border}`,
+                background: done ? T.greenBg : active ? T.navyFaint : T.surface,
+                display:"flex", alignItems:"center", justifyContent:"center",
+                marginTop:"2px", fontSize:"13px", fontWeight:"700",
+                color: done ? T.green : active ? T.navy : T.text3 }}>
+                {done ? "\u2713" : active ? "\u2192" : s.id}
+              </div>
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:"13px", fontWeight:"700", letterSpacing:"0.06em",
+                  textTransform:"uppercase",
+                  color: done ? T.green : active ? T.navy : T.text3,
+                  paddingTop:"7px" }}>
+                  {s.label}
                 </div>
-                <div style={{ fontSize:"10px", color:sc, letterSpacing:"0.1em", marginTop:"2px" }}>
-                  {scoreLabel(t.score)}
-                </div>
+                {done && results[s.key] && (
+                  <div style={{ marginTop:"8px", padding:"16px 18px",
+                    background:T.surface, border:`1px solid ${T.border}`,
+                    borderLeft:`3px solid ${T.green}`,
+                    borderRadius:"0 4px 4px 0",
+                    fontSize:"14px", color:T.text2, lineHeight:"1.85",
+                    whiteSpace:"pre-wrap" }}>
+                    {results[s.key]}
+                  </div>
+                )}
+                {active && (
+                  <div style={{ marginTop:"8px", padding:"12px 16px",
+                    background:T.navyFaint, border:`1px solid ${T.navy}30`,
+                    borderRadius:"4px", fontSize:"13px", color:T.navyMid,
+                    fontWeight:"500" }}>
+                    Analyzing…
+                  </div>
+                )}
               </div>
             </div>
           );
         })}
       </div>
-
-      {/* Top risk note */}
-      {sorted[0] && !isMobile && selected.size===0 && (
-        <div style={{ marginTop:"16px", padding:"13px 16px", background:T.surface,
-          border:`1px solid ${T.border}`, fontSize:"13px", color:T.text2 }}>
-          <span style={{ color:T.gold }}>{"\u25B8"} HIGHEST RISK: {sorted[0].ticker} ({sorted[0].member})</span>
-          {" \u2014 "}{sorted[0].scoreReason}
-        </div>
-      )}
-
-      {!isMobile && selected.size > 0 && (
-        <div style={{ marginTop:"22px", textAlign:"right" }}>
-          <button onClick={onAnalyze}
-            style={{ background:T.goldFaint, border:`1px solid ${T.gold}`, color:T.gold,
-              padding:"14px 40px", fontSize:"14px", letterSpacing:"0.18em",
-              cursor:"pointer", fontFamily:"'Courier New',monospace" }}>
-            &#9654; RUN DEEP ANALYSIS ({selected.size} selected)
-          </button>
-        </div>
-      )}
     </div>
   );
 }
 
-/* -- ANALYZING ------------------------------------------- */
-function AnalyzingScreen({ trade, step, results }) {
-  if (!trade) return null;
-  return (
-    <div>
-      <div style={{ marginBottom:"28px" }}>
-        <div style={{ fontFamily:"Georgia,serif", color:T.gold, fontSize:"24px", letterSpacing:"0.08em" }}>
-          DEEP ANALYSIS PIPELINE
-        </div>
-        <div style={{ fontSize:"14px", color:T.text2, marginTop:"8px" }}>
-          {trade.member} · {trade.type==="Buy"?"\u25B2":"\u25BC"} {trade.type} {trade.ticker} · {trade.amount}
-        </div>
-      </div>
-      {STEPS.map((s) => {
-        const done = step > s.id, active = step === s.id;
-        return (
-          <div key={s.id} style={{ display:"flex", gap:"16px", marginBottom:"8px" }}>
-            <div style={{ flexShrink:0, width:"28px", height:"28px",
-              border:`1px solid ${done?T.green:active?T.gold:T.border}`,
-              background: done?"rgba(39,201,110,0.1)":active?T.goldFaint:"transparent",
-              display:"flex", alignItems:"center", justifyContent:"center", marginTop:"2px" }}>
-              <span style={{ fontSize:"12px", color:done?T.green:active?T.gold:T.text3 }}>
-                {done?"\u2713":active?"\u25B6":s.id}
-              </span>
-            </div>
-            <div style={{ flex:1 }}>
-              <div style={{ fontSize:"12px", letterSpacing:"0.15em",
-                color:done?T.green:active?T.gold:T.text3, paddingTop:"6px" }}>
-                {s.label}
-              </div>
-              {done && results[s.key] && (
-                <div style={{ marginTop:"10px", padding:"16px 18px", background:T.surface,
-                  border:`1px solid ${T.border}`, fontSize:"14px", color:T.text2,
-                  lineHeight:"1.85", whiteSpace:"pre-wrap" }}>
-                  {results[s.key]}
-                </div>
-              )}
-              {active && (
-                <div style={{ marginTop:"10px", padding:"11px 14px", background:T.goldFaint,
-                  border:`1px solid ${T.goldDim}`, fontSize:"13px", color:T.goldMid,
-                  letterSpacing:"0.1em" }}>
-                  &#9632; PROCESSING...
-                </div>
-              )}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-/* -- RESULTS --------------------------------------------- */
+/* -- RESULTS ----------------------------------------------- */
 function ResultsScreen({ results, isMobile, onBack }) {
   const [activeIdx, setActiveIdx] = useState(0);
   if (!results.length) return null;
   const { trade, analysis } = results[activeIdx];
+  const sc = scoreColor(trade.score);
+  const sb = scoreBg(trade.score);
+
   return (
     <div>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center",
-        marginBottom:"28px", flexWrap:"wrap", gap:"14px" }}>
+      {/* Header */}
+      <div style={{ display:"flex", justifyContent:"space-between",
+        alignItems:"center", marginBottom:"24px", flexWrap:"wrap", gap:"12px" }}>
         <div>
-          <div style={{ fontFamily:"Georgia,serif", color:T.gold,
-            fontSize:isMobile?"20px":"26px", letterSpacing:"0.08em" }}>
-            INTELLIGENCE REPORT
+          <div style={{ fontFamily:FONT_SERIF, color:T.navy,
+            fontSize:isMobile?"20px":"26px", fontWeight:"bold" }}>
+            Intelligence Report
           </div>
-          <div style={{ fontSize:"13px", color:T.text2, marginTop:"5px" }}>
+          <div style={{ fontSize:"14px", color:T.text2, marginTop:"4px" }}>
             {results.length} trade{results.length!==1?"s":""} analyzed
           </div>
         </div>
         <button onClick={onBack}
-          style={{ background:"transparent", border:`1px solid ${T.borderBright}`,
+          style={{ background:"transparent", border:`1px solid ${T.borderHi}`,
             color:T.text2, padding:"9px 20px", cursor:"pointer",
-            fontSize:"13px", letterSpacing:"0.1em", fontFamily:"'Courier New',monospace" }}>
-          &larr; BACK TO SCAN
+            fontSize:"14px", borderRadius:"4px", fontFamily:FONT_BODY }}>
+          {"\u2190"} Back to Scan
         </button>
       </div>
 
-      {/* Tab selector for multiple trades */}
+      {/* Trade tabs */}
       {results.length > 1 && (
-        <div style={{ display:"flex", gap:"4px", marginBottom:"22px", flexWrap:"wrap" }}>
+        <div style={{ display:"flex", gap:"6px", marginBottom:"20px",
+          flexWrap:"wrap", overflowX:"auto" }}>
           {results.map((r, i) => (
             <button key={i} onClick={() => setActiveIdx(i)}
-              style={{ background:i===activeIdx?T.goldFaint:"transparent",
-                border:`1px solid ${i===activeIdx?T.goldMid:T.border}`,
-                color:i===activeIdx?T.gold:T.text2, padding:"8px 18px",
-                cursor:"pointer", fontSize:"13px",
-                fontFamily:"'Courier New',monospace", letterSpacing:"0.08em" }}>
+              style={{ background: i===activeIdx ? T.navy : T.surface,
+                border:`1px solid ${i===activeIdx ? T.navy : T.border}`,
+                color: i===activeIdx ? "#fff" : T.text2,
+                padding:"8px 18px", cursor:"pointer", fontSize:"13px",
+                fontWeight:"600", borderRadius:"4px",
+                fontFamily:FONT_MONO }}>
               {r.trade.ticker}
             </button>
           ))}
@@ -430,104 +550,136 @@ function ResultsScreen({ results, isMobile, onBack }) {
       )}
 
       {/* Trade summary card */}
-      <div style={{ background:T.surface, border:`1px solid ${T.borderBright}`,
+      <div style={{ background:T.surface, border:`1px solid ${T.border}`,
+        borderTop:`3px solid ${T.navy}`, borderRadius:"4px",
         padding:isMobile?"18px":"24px 28px", marginBottom:"24px" }}>
         <div style={{ display:"flex", justifyContent:"space-between",
-          alignItems:"flex-start", flexWrap:"wrap", gap:"18px" }}>
-          <div>
-            <div style={{ fontFamily:"'Courier New',monospace",
-              fontSize:isMobile?"26px":"34px", color:T.text, fontWeight:"bold" }}>
-              {trade.ticker}
+          alignItems:"flex-start", flexWrap:"wrap", gap:"16px" }}>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ display:"flex", alignItems:"baseline", gap:"12px", flexWrap:"wrap" }}>
+              <div style={{ fontFamily:FONT_MONO, fontSize:isMobile?"28px":"36px",
+                color:T.navy, fontWeight:"800" }}>
+                {trade.ticker}
+              </div>
+              <div style={{ fontSize:"16px", color:T.text2 }}>{trade.company}</div>
             </div>
-            <div style={{ fontSize:"15px", color:T.text2, marginTop:"4px" }}>{trade.company}</div>
-            <div style={{ marginTop:"14px", display:"flex", flexWrap:"wrap", gap:"20px" }}>
-              {[
-                ["MEMBER",  trade.member,  T.text,  "Georgia,serif"],
-                ["PARTY",   `${trade.party}-${trade.state}`, partyColor(trade.party), null],
-                ["CHAMBER", trade.chamber, T.text,  null],
-                ["TYPE",    trade.type==="Buy"?"\u25B2 BUY":"\u25BC SELL",
-                            trade.type==="Buy"?T.green:T.red, "'Courier New',monospace"],
-                ["AMOUNT",  trade.amount,  T.text,  null],
-              ].map(([label, val, color, font]) => (
-                <span key={label} style={{ fontSize:"14px" }}>
-                  <span style={{ color:T.text2 }}>{label} </span>
-                  <span style={{ color, fontFamily:font||"inherit" }}>{val}</span>
-                </span>
-              ))}
+            <div style={{ marginTop:"14px", display:"flex", flexWrap:"wrap", gap:"10px" }}>
+              <span style={{ fontSize:"14px", padding:"4px 12px", borderRadius:"4px",
+                background:T.surface2, border:`1px solid ${T.border}` }}>
+                <span style={{ color:T.text2 }}>Member </span>
+                <strong style={{ color:T.text, fontFamily:FONT_SERIF }}>{trade.member}</strong>
+              </span>
+              <span style={{ fontSize:"14px", padding:"4px 12px", borderRadius:"4px",
+                background:partyBg(trade.party), border:`1px solid ${partyColor(trade.party)}30` }}>
+                <strong style={{ color:partyColor(trade.party) }}>{trade.party}-{trade.state}</strong>
+              </span>
+              <span style={{ fontSize:"14px", padding:"4px 12px", borderRadius:"4px",
+                background:T.surface2, border:`1px solid ${T.border}` }}>
+                {trade.chamber}
+              </span>
+              <span style={{ fontSize:"14px", padding:"4px 12px", borderRadius:"4px",
+                background: trade.type==="Buy" ? T.greenBg : T.redBg,
+                border:`1px solid ${trade.type==="Buy" ? T.green : T.red}30` }}>
+                <strong style={{ color: trade.type==="Buy" ? T.green : T.red }}>
+                  {trade.type==="Buy" ? "\u25B2 Buy" : "\u25BC Sell"}
+                </strong>
+                <span style={{ color:T.text2, marginLeft:"8px" }}>{trade.amount}</span>
+              </span>
             </div>
           </div>
-          <div style={{ textAlign:"right" }}>
-            <div style={{ fontSize:"58px", fontFamily:"'Courier New',monospace",
-              color:scoreColor(trade.score), fontWeight:"bold", lineHeight:1 }}>
+          {/* Score badge */}
+          <div style={{ textAlign:"center", padding:"18px 24px",
+            background:sb, borderRadius:"6px",
+            border:`1px solid ${sc}30`, minWidth:"100px" }}>
+            <div style={{ fontSize:isMobile?"44px":"52px", fontFamily:FONT_MONO,
+              color:sc, fontWeight:"800", lineHeight:1 }}>
               {trade.score.toFixed(1)}
             </div>
-            <div style={{ fontSize:"12px", color:scoreColor(trade.score),
-              letterSpacing:"0.15em", marginTop:"5px" }}>
+            <div style={{ fontSize:"11px", color:sc, fontWeight:"800",
+              letterSpacing:"0.1em", marginTop:"4px" }}>
               {scoreLabel(trade.score)}
             </div>
-            <div style={{ fontSize:"11px", color:T.text3, marginTop:"5px" }}>INSIDER RISK SCORE</div>
+            <div style={{ fontSize:"11px", color:T.text3, marginTop:"4px" }}>
+              Insider Risk
+            </div>
           </div>
         </div>
       </div>
 
       {/* Pipeline outputs */}
-      {STEPS.map((s) => (
-        <div key={s.key} style={{ marginBottom:"20px" }}>
-          <div style={{ display:"flex", alignItems:"center", gap:"12px", marginBottom:"10px" }}>
-            <div style={{ width:"22px", height:"22px",
-              border:`1px solid ${T.green}`, background:"rgba(39,201,110,0.1)",
-              display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 }}>
-              <span style={{ fontSize:"11px", color:T.green }}>{"\u2713"}</span>
+      <div style={{ display:"flex", flexDirection:"column", gap:"16px" }}>
+        {STEPS.map((s) => (
+          <div key={s.key}
+            style={{ background:T.surface, border:`1px solid ${T.border}`,
+              borderLeft: s.key==="verdict" ? `4px solid ${T.navy}` : `1px solid ${T.border}`,
+              borderRadius:"4px", overflow:"hidden" }}>
+            <div style={{ padding:"12px 18px",
+              background: s.key==="verdict" ? T.navyFaint : T.surface2,
+              borderBottom:`1px solid ${T.border}`,
+              display:"flex", alignItems:"center", gap:"10px" }}>
+              <div style={{ width:"22px", height:"22px", borderRadius:"50%",
+                background:T.greenBg, border:`1px solid ${T.green}`,
+                display:"flex", alignItems:"center", justifyContent:"center",
+                flexShrink:0, fontSize:"11px", color:T.green, fontWeight:"700" }}>
+                {"\u2713"}
+              </div>
+              <span style={{ fontSize:"13px", fontWeight:"700",
+                color: s.key==="verdict" ? T.navy : T.text,
+                letterSpacing:"0.06em", textTransform:"uppercase" }}>
+                {s.label}
+              </span>
             </div>
-            <div style={{ fontSize:"12px", letterSpacing:"0.18em", color:T.green }}>{s.label}</div>
+            <div style={{ padding:isMobile?"16px":"18px 20px",
+              fontSize:"14px", color:T.text2, lineHeight:"1.9",
+              whiteSpace:"pre-wrap" }}>
+              {analysis[s.key] || "\u2014"}
+            </div>
           </div>
-          <div style={{ padding:isMobile?"16px":"20px 22px", background:T.surface,
-            border:`1px solid ${s.key==="verdict"?T.goldDim:T.border}`,
-            borderLeft:s.key==="verdict"?`3px solid ${T.gold}`:`1px solid ${T.border}`,
-            fontSize:"14px", color:T.text2, lineHeight:"1.9", whiteSpace:"pre-wrap" }}>
-            {analysis[s.key] || "\u2014"}
-          </div>
-        </div>
-      ))}
+        ))}
+      </div>
 
-      <div style={{ marginTop:"32px", padding:"14px 18px", background:T.goldFaint,
-        border:`1px solid ${T.goldDim}`, fontSize:"12px", color:T.goldMid, lineHeight:"1.8" }}>
-        &#9888; DISCLAIMER: Analysis generated by AI using public disclosure data for educational purposes only.
-        Not financial advice. Not affiliated with any U.S. government body.
-        Consult a licensed financial advisor before making investment decisions.
+      <div style={{ marginTop:"28px", padding:"14px 18px",
+        background:T.amberBg, border:`1px solid ${T.amber}40`,
+        borderRadius:"4px", fontSize:"13px", color:T.text2, lineHeight:"1.7" }}>
+        <strong style={{ color:T.amber }}>{"\u26A0"} Disclaimer:</strong> Analysis generated by AI using
+        real STOCK Act disclosure data for educational purposes only. Not financial advice. Not affiliated with
+        any U.S. government body. Consult a licensed financial advisor before investing.
       </div>
     </div>
   );
 }
 
-/* -- ROOT ------------------------------------------------ */
+/* -- ROOT -------------------------------------------------- */
 export default function CongressIntel() {
-  const [phase, setPhase] = useState("idle");
-  const [trades, setTrades] = useState([]);
-  const [selected, setSelected] = useState(new Set());
-  const [currentTrade, setCurrentTrade] = useState(null);
-  const [pipelineStep, setPipelineStep] = useState(0);
-  const [pipelineResults, setPipelineResults] = useState({});
-  const [allResults, setAllResults] = useState([]);
-  const [error, setError] = useState("");
-  const [isMobile, setIsMobile] = useState(false);
+  const [phase,          setPhase]          = useState("idle");
+  const [trades,         setTrades]         = useState([]);
+  const [selected,       setSelected]       = useState(new Set());
+  const [currentTrade,   setCurrentTrade]   = useState(null);
+  const [pipelineStep,   setPipelineStep]   = useState(0);
+  const [pipelineResults,setPipelineResults]= useState({});
+  const [allResults,     setAllResults]     = useState([]);
+  const [error,          setError]          = useState("");
+  const [isMobile,       setIsMobile]       = useState(false);
 
   useEffect(() => {
-    const check = () => setIsMobile(window.innerWidth < 600);
+    const check = () => setIsMobile(window.innerWidth < 680);
     check();
     window.addEventListener("resize", check);
     try {
-      const s = localStorage.getItem("ci_v3");
+      const s = localStorage.getItem("ci_v4");
       if (s) {
         const p = JSON.parse(s);
-        if (p.phase==="quickscan" && p.trades?.length) { setTrades(p.trades); setPhase("quickscan"); }
-        else if (p.phase==="results" && p.allResults?.length) { setTrades(p.trades||[]); setAllResults(p.allResults); setPhase("results"); }
+        if (p.phase==="quickscan" && p.trades?.length) {
+          setTrades(p.trades); setPhase("quickscan");
+        } else if (p.phase==="results" && p.allResults?.length) {
+          setTrades(p.trades||[]); setAllResults(p.allResults); setPhase("results");
+        }
       }
     } catch {}
     return () => window.removeEventListener("resize", check);
   }, []);
 
-  const save = (d) => { try { localStorage.setItem("ci_v3", JSON.stringify(d)); } catch {} };
+  const save = (d) => { try { localStorage.setItem("ci_v4", JSON.stringify(d)); } catch {} };
 
   const runQuickScan = async () => {
     setPhase("scanning"); setError("");
@@ -536,7 +688,7 @@ export default function CongressIntel() {
       const rawTrades = await fetchTrades(30);
       if (!rawTrades.length) throw new Error("No recent trades found in disclosure feeds.");
 
-      // Score trades with AI — enrich with committee, sector, state, and risk score
+      // Score trades with AI — enrich with state, committee, sector, risk score
       const text = await callAnalyze(
         "You are a U.S. congressional trading intelligence analyst. Score real congressional stock disclosures for insider risk. Return ONLY a valid JSON object.",
         `Score these real congressional stock trades for insider risk potential. Each trade already has member name, party, chamber, ticker, type, amount, and filing dates. For each trade, add the member's state (2-letter), most relevant committee assignment, the stock's sector, and assign an insider risk score from 1.0 to 10.0 based on: committee relevance to the traded sector, trade size, filing delay, and timing signals.
@@ -589,69 +741,65 @@ Use the real party affiliations provided. Be accurate with state and committee a
   const reset = () => {
     setPhase("idle"); setTrades([]); setSelected(new Set());
     setAllResults([]); setError(""); setPipelineResults({});
-    try { localStorage.removeItem("ci_v3"); } catch {}
+    try { localStorage.removeItem("ci_v4"); } catch {}
   };
 
   return (
     <div style={{ background:T.bg, minHeight:"100vh",
-      fontFamily:"'Courier New',Courier,monospace", color:T.text, position:"relative" }}>
-      {/* Scanlines */}
-      <div style={{ position:"fixed", inset:0,
-        background:"repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.06) 2px,rgba(0,0,0,0.06) 4px)",
-        pointerEvents:"none", zIndex:1 }}/>
-
-      <div style={{ position:"relative", zIndex:2, maxWidth:"1100px", margin:"0 auto",
-        padding:isMobile?"16px 14px":"32px 28px" }}>
+      fontFamily:FONT_BODY, color:T.text }}>
+      <div style={{ maxWidth:"1100px", margin:"0 auto",
+        padding:isMobile?"14px 14px":"28px 28px" }}>
 
         {/* Header */}
-        <div style={{ borderBottom:`1px solid ${T.goldDim}`, paddingBottom:"20px", marginBottom:"32px" }}>
-          <div style={{ display:"flex", justifyContent:"space-between",
-            alignItems:"flex-start", flexWrap:"wrap", gap:"14px" }}>
-            <div>
-              <h1 style={{ fontFamily:"Georgia,serif",
-                fontSize:isMobile?"24px":"40px", fontWeight:"bold", color:T.gold,
-                letterSpacing:"0.12em", margin:0,
-                textShadow:"0 0 40px rgba(240,192,64,0.25)" }}>
-                CONGRESSINTEL
-              </h1>
-              <div style={{ fontSize:"12px", color:T.text2, letterSpacing:"0.2em", marginTop:"6px" }}>
-                U.S. CONGRESSIONAL TRADING INTELLIGENCE SYSTEM
-              </div>
-              <div style={{ display:"flex", gap:"8px", marginTop:"10px", flexWrap:"wrap" }}>
-                <span style={{ fontSize:"11px", padding:"3px 10px",
-                  border:`1px solid ${T.goldDim}`, color:T.goldMid, letterSpacing:"0.1em" }}>
-                  LIVE DATA
-                </span>
-                <span style={{ fontSize:"11px", padding:"3px 10px",
-                  border:`1px solid ${T.border}`, color:T.text3, letterSpacing:"0.1em" }}>
-                  NOT FINANCIAL ADVICE
-                </span>
-              </div>
+        <div style={{ background:T.surface, border:`1px solid ${T.border}`,
+          borderTop:`4px solid ${T.navy}`,
+          padding:isMobile?"16px 18px":"20px 28px",
+          marginBottom:"24px", borderRadius:"4px",
+          display:"flex", justifyContent:"space-between",
+          alignItems:"center", flexWrap:"wrap", gap:"12px" }}>
+          <div>
+            <h1 style={{ fontFamily:FONT_SERIF, fontSize:isMobile?"22px":"32px",
+              fontWeight:"bold", color:T.navy,
+              letterSpacing:"0.04em", margin:0 }}>
+              CongressIntel
+            </h1>
+            <div style={{ fontSize:"12px", color:T.text3,
+              letterSpacing:"0.1em", marginTop:"4px",
+              textTransform:"uppercase" }}>
+              U.S. Congressional Trading Intelligence
             </div>
-            {phase !== "idle" && (
-              <button onClick={reset}
-                style={{ background:"transparent", border:`1px solid ${T.border}`,
-                  color:T.text2, padding:"8px 18px", cursor:"pointer",
-                  fontSize:"12px", letterSpacing:"0.12em", fontFamily:"'Courier New',monospace" }}>
-                &#8634; RESET
-              </button>
-            )}
+            <div style={{ display:"flex", gap:"8px", marginTop:"8px", flexWrap:"wrap" }}>
+              <span style={{ fontSize:"11px", padding:"2px 10px", borderRadius:"3px",
+                background:T.greenBg, color:T.green,
+                fontWeight:"600", border:`1px solid ${T.green}40` }}>
+                Live Data
+              </span>
+              <span style={{ fontSize:"11px", padding:"2px 10px", borderRadius:"3px",
+                background:T.surface2, color:T.text3, border:`1px solid ${T.border}` }}>
+                Not Financial Advice
+              </span>
+            </div>
           </div>
+          {phase !== "idle" && (
+            <button onClick={reset}
+              style={{ background:"transparent", border:`1px solid ${T.borderHi}`,
+                color:T.text2, padding:"8px 18px", cursor:"pointer",
+                fontSize:"13px", borderRadius:"4px",
+                fontFamily:FONT_BODY, fontWeight:"500" }}>
+              {"\u21BA"} Reset
+            </button>
+          )}
         </div>
 
-        {/* Mobile banner */}
-        {isMobile && ["idle","quickscan"].includes(phase) && (
-          <div style={{ background:"rgba(90,69,18,0.18)", border:`1px solid ${T.goldDim}`,
-            padding:"12px 16px", marginBottom:"22px", fontSize:"13px", color:T.goldMid }}>
-            &#9888; MOBILE — Read-only display mode. Desktop required to run analysis.
-          </div>
-        )}
-
-        {phase==="idle"      && <IdleScreen onScan={runQuickScan} error={error} isMobile={isMobile}/>}
+        {phase==="idle"      && <IdleScreen onScan={runQuickScan} error={error}/>}
         {phase==="scanning"  && <ScanningScreen/>}
-        {phase==="quickscan" && <QuickScanScreen trades={trades} selected={selected} setSelected={setSelected} onAnalyze={runDeepAnalysis} isMobile={isMobile}/>}
-        {phase==="analyzing" && <AnalyzingScreen trade={currentTrade} step={pipelineStep} results={pipelineResults}/>}
-        {phase==="results"   && <ResultsScreen results={allResults} isMobile={isMobile} onBack={()=>setPhase("quickscan")}/>}
+        {phase==="quickscan" && <QuickScanScreen trades={trades} selected={selected}
+                                  setSelected={setSelected} onAnalyze={runDeepAnalysis}
+                                  isMobile={isMobile}/>}
+        {phase==="analyzing" && <AnalyzingScreen trade={currentTrade}
+                                  step={pipelineStep} results={pipelineResults}/>}
+        {phase==="results"   && <ResultsScreen results={allResults}
+                                  isMobile={isMobile} onBack={()=>setPhase("quickscan")}/>}
       </div>
     </div>
   );
