@@ -1,5 +1,6 @@
 const QUIVER_URL = 'https://api.quiverquant.com/beta/live/congresstrading';
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
+const YAHOO_CHART_URL = 'https://query1.finance.yahoo.com/v8/finance/chart';
 
 const ALLOWED_ORIGINS = [
   'https://gwaiblade.github.io',
@@ -7,6 +8,10 @@ const ALLOWED_ORIGINS = [
 ];
 
 const ALLOWED_MODELS = ['gpt-4o-mini', 'gpt-4o'];
+
+// Step 5 (valuation) prompts from the frontend always start with this signature.
+// Matching here lets us inject live price data without touching the API contract.
+const VALUATION_STEP_RE = /^Valuation and technical snapshot for ([A-Z0-9.\-]{1,10}):/;
 
 function corsHeaders(request) {
   const origin = request?.headers?.get('Origin') || '';
@@ -84,6 +89,66 @@ async function fetchTrades(days) {
   return trades.slice(0, 50);
 }
 
+async function fetchLivePrice(ticker) {
+  try {
+    const res = await fetch(
+      `${YAHOO_CHART_URL}/${encodeURIComponent(ticker)}?interval=1d&range=5d`,
+      {
+        headers: {
+          Accept: 'application/json',
+          // Yahoo's edge sometimes 401s unidentified clients from CF Workers.
+          'User-Agent': 'Mozilla/5.0 (compatible; CongressIntel/1.0)',
+        },
+      }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const meta = data?.chart?.result?.[0]?.meta;
+    if (!meta || typeof meta.regularMarketPrice !== 'number') return null;
+
+    const price = meta.regularMarketPrice;
+    const prevClose =
+      typeof meta.chartPreviousClose === 'number'
+        ? meta.chartPreviousClose
+        : meta.previousClose;
+    const pctChange =
+      typeof prevClose === 'number' && prevClose !== 0
+        ? ((price - prevClose) / prevClose) * 100
+        : null;
+
+    return {
+      price,
+      prevClose: typeof prevClose === 'number' ? prevClose : null,
+      pctChange,
+      high52: typeof meta.fiftyTwoWeekHigh === 'number' ? meta.fiftyTwoWeekHigh : null,
+      low52: typeof meta.fiftyTwoWeekLow === 'number' ? meta.fiftyTwoWeekLow : null,
+      currency: meta.currency || 'USD',
+    };
+  } catch {
+    return null;
+  }
+}
+
+function formatLiveDataBlock(p) {
+  const num = (n) => (typeof n === 'number' && isFinite(n) ? n.toFixed(2) : 'n/a');
+  const pct = (n) =>
+    typeof n === 'number' && isFinite(n)
+      ? `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`
+      : 'n/a';
+  return [
+    'LIVE MARKET DATA (as of today):',
+    `Current price: $${num(p.price)}`,
+    `Previous close: $${num(p.prevClose)}`,
+    `Change today: ${pct(p.pctChange)}`,
+    `52-week range: $${num(p.low52)} – $${num(p.high52)}`,
+    '',
+    'Use these exact figures in your analysis. Do not estimate or invent price data.',
+    '',
+    '---',
+    '',
+  ].join('\n');
+}
+
 async function handleAnalyze(request, env) {
   let body;
   try {
@@ -100,12 +165,25 @@ async function handleAnalyze(request, env) {
     return jsonResponse({ error: 'Invalid model' }, 400, request);
   }
 
+  // Step 5 only: inject live market data so GPT isn't guessing prices.
+  // Detection is by prompt signature; failures fall through silently.
+  let userContent = user;
+  const valuationMatch =
+    typeof user === 'string' ? user.match(VALUATION_STEP_RE) : null;
+  if (valuationMatch) {
+    const ticker = valuationMatch[1];
+    const live = await fetchLivePrice(ticker);
+    if (live) {
+      userContent = formatLiveDataBlock(live) + user;
+    }
+  }
+
   const payload = {
     model,
     max_tokens: 4000,
     messages: [
       { role: 'system', content: system },
-      { role: 'user', content: user },
+      { role: 'user', content: userContent },
     ],
   };
 
