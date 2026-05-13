@@ -40,7 +40,7 @@ Two deploy targets — they are independent. A frontend push does NOT redeploy t
 - **Entry points:**
   - Frontend: `congressintel/src/main.jsx` → `App.jsx` (the entire UI lives in `App.jsx`, ~800 lines).
   - Worker: `worker/src/index.js` (~240 lines). `export default { fetch }`. Two routes: `GET /trades`, `POST /analyze`.
-- **`congressintel/`** — Vite + React frontend. `vite.config.js` sets `base: '/congressintel/'` for GitHub Pages subpath. `.env` (gitignored) holds local-dev values for `VITE_APP_TOKEN` and `VITE_WORKER_URL`.
+- **`congressintel/`** — Vite + React frontend. `vite.config.js` sets `base: '/congressintel/'` for GitHub Pages subpath. `.env` (gitignored) holds the local-dev value for `VITE_WORKER_URL`. The access token is **not** an env var — see Secrets section.
 - **`worker/`** — Cloudflare Worker. `wrangler.toml` declares the worker name `congressintel-api` and compatibility date. `.wrangler/` is local build cache (gitignored).
 - **`.github/workflows/deploy.yml`** — Auto-builds the frontend with GitHub Actions secrets and publishes to Pages on every push to `main`.
 - **Surprises:**
@@ -64,8 +64,8 @@ Never paste actual values into commits, summaries, or chat.
 |---|---|---|
 | `OPENAI_API_KEY` | Cloudflare Worker secret | Set via `wrangler secret put OPENAI_API_KEY` or the Cloudflare dashboard. Accessed in code as `env.OPENAI_API_KEY`. |
 | `APP_TOKEN` | Cloudflare Worker secret | Same path. Current value is `ci-henry-2026`. All worker requests must send `X-App-Token: <APP_TOKEN>`. |
-| `VITE_APP_TOKEN` | GitHub repo secret (for CI builds) + `congressintel/.env` (for local dev) | Vite inlines it into the frontend bundle at build time. **Note:** This token is therefore publicly visible in production JS — defense relies on the OpenAI spending cap, not token secrecy. |
-| `VITE_WORKER_URL` | GitHub repo secret + `congressintel/.env` | Same. |
+| `VITE_WORKER_URL` | GitHub repo secret (CI) + `congressintel/.env` (local dev) | Inlined by Vite at build time. |
+| Access token (what `X-App-Token` carries) | **Browser `localStorage` only** (key: `ci_app_token`) | Entered by the user in the in-app TokenGate on first visit. Never embedded in the production JS bundle. "Sign out" in the header clears it. |
 
 `.env` and `.dev.vars` are gitignored at the repo root.
 
@@ -74,8 +74,8 @@ Never paste actual values into commits, summaries, or chat.
 - **⚠️ Dropbox CloudStorage sync race.** The workspace lives inside `~/Library/CloudStorage/Dropbox/...`. On at least one occasion (April 2026), Dropbox synced an older version of `worker/src/index.js` back over locally-edited code after the file had been deployed via `wrangler deploy`. Result: live worker had new code, local source did not, `git status` was clean — a silent regression risk. **After editing worker source, verify `git status` shows the file as modified before stepping away.** If `git status` is unexpectedly clean after edits, check `worker/.wrangler/tmp/*/index.js` for the bundled-but-newer version, and re-apply.
 - **Yahoo Finance needs a User-Agent.** `query1.finance.yahoo.com` returns 401 to Cloudflare Workers without one. The worker sets `User-Agent: Mozilla/5.0 (compatible; CongressIntel/1.0)`. Don't remove it.
 - **Valuation-step injection is by prompt sniffing.** The worker matches `/^Valuation and technical snapshot for ([A-Z0-9.\-]{1,10}):/` against the user prompt. If you change the frontend's step-5 prompt wording in `App.jsx`, the worker will silently stop injecting live price data. Keep them in sync, or refactor to an explicit `step`/`ticker` field in the request body.
-- **README data-source claim is stale.** The README says "House and Senate Stock Watcher feeds" but the actual data source is Quiver Quant. Code is source of truth.
-- **`VITE_APP_TOKEN` is not actually secret in production** — it ends up in the frontend bundle. Real abuse prevention is the OpenAI spending cap (set at https://platform.openai.com/settings/organization/billing).
+- **Access token lives in `localStorage`, not env.** Vite is *not* given the token at build time — entering it via the TokenGate stores it under `localStorage["ci_app_token"]`. If you fork the repo or migrate to a new device, you have to enter the token again. Don't add `VITE_APP_TOKEN` back to the build env; it is intentionally absent.
+- **OpenAI spending cap is still the ultimate backstop.** Set at https://platform.openai.com/settings/organization/billing.
 - **Wrangler version.** Pinned at `^3`; `wrangler@4` exists but hasn't been validated against this worker. If upgrading, regression-test `/trades` and `/analyze` end-to-end.
 - **Worker has no persistent state.** No KV, no D1, no Durable Objects. Watchlists, alerts, history — all would require new infra.
 - **OpenAI `max_tokens` is 4000** in the worker. Large prompt blowing the response budget shows up as a truncated/JSON-parse error in the frontend. Either reduce input size or raise the cap.
@@ -93,7 +93,6 @@ Never paste actual values into commits, summaries, or chat.
 
 **Known issues:**
 - The Dropbox sync race described above is unresolved. Workaround is the verification habit; the real fix would be moving the workspace out of CloudStorage onto a non-synced disk.
-- README is mildly stale (data-source claim).
 - No pagination — worker caps at 50 trades per `/trades` call.
 
 **Backlog (no commitment):**

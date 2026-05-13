@@ -1,7 +1,27 @@
 import { useState, useEffect } from "react";
 
 const WORKER_URL = import.meta.env.VITE_WORKER_URL || "http://localhost:8787";
-const APP_TOKEN = import.meta.env.VITE_APP_TOKEN || "";
+
+/* -- ACCESS TOKEN -----------------------------------------
+ * Stored in localStorage, never embedded in the build. User enters it
+ * through the TokenGate on first visit and on any 401 from the worker.
+ * ---------------------------------------------------------- */
+const TOKEN_KEY = "ci_app_token";
+
+function getStoredToken() {
+  try { return localStorage.getItem(TOKEN_KEY) || ""; } catch { return ""; }
+}
+
+function setStoredToken(token) {
+  try {
+    if (token) localStorage.setItem(TOKEN_KEY, token);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch {}
+}
+
+class UnauthorizedError extends Error {
+  constructor(msg) { super(msg); this.name = "UnauthorizedError"; }
+}
 
 /* -- THEME ------------------------------------------------- */
 const T = {
@@ -32,14 +52,19 @@ const FONT_SERIF = "Georgia, 'Times New Roman', serif";
 
 /* -- API (via Cloudflare Worker) --------------------------- */
 async function workerFetch(path, options = {}) {
+  const token = getStoredToken();
   const res = await fetch(`${WORKER_URL}${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
-      "X-App-Token": APP_TOKEN,
+      "X-App-Token": token,
       ...(options.headers || {}),
     },
   });
+  if (res.status === 401) {
+    setStoredToken(""); // clear bad token; gate will re-prompt
+    throw new UnauthorizedError("Access token invalid or missing.");
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
     throw new Error(err.error || `Request failed: ${res.status}`);
@@ -100,6 +125,63 @@ const STEPS = [
   { id:5, key:"valuation", label:"Valuation Snapshot" },
   { id:6, key:"verdict",   label:"Verdict & Action" },
 ];
+
+/* -- TOKEN GATE -------------------------------------------- */
+function TokenGate({ onSubmit, error }) {
+  const [value, setValue] = useState("");
+  const submit = (e) => {
+    e.preventDefault();
+    const v = value.trim();
+    if (v) onSubmit(v);
+  };
+  return (
+    <div style={{ background:T.bg, minHeight:"100vh",
+      fontFamily:FONT_BODY, color:T.text, display:"flex",
+      alignItems:"center", justifyContent:"center", padding:"20px" }}>
+      <form onSubmit={submit}
+        style={{ background:T.surface, border:`1px solid ${T.border}`,
+          borderTop:`3px solid ${T.navy}`, borderRadius:"4px",
+          padding:"36px", maxWidth:"460px", width:"100%" }}>
+        <div style={{ fontFamily:FONT_SERIF, fontSize:"22px", color:T.navy,
+          marginBottom:"12px", fontWeight:"bold" }}>
+          CongressIntel
+        </div>
+        <div style={{ fontSize:"14px", color:T.text2, lineHeight:"1.6",
+          marginBottom:"24px" }}>
+          Enter your access token to continue. Stored locally in this browser
+          only — never sent anywhere except this app's worker.
+        </div>
+        <input type="password" value={value} autoFocus
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="Access token"
+          style={{ width:"100%", padding:"12px 14px", fontSize:"14px",
+            fontFamily:FONT_MONO, border:`1px solid ${T.border}`,
+            borderRadius:"4px", boxSizing:"border-box",
+            background:T.surface2, color:T.text }}/>
+        {error && (
+          <div style={{ marginTop:"14px", background:T.redBg,
+            border:`1px solid ${T.red}`, borderRadius:"4px",
+            padding:"10px 14px", fontSize:"13px", color:T.red }}>
+            {error}
+          </div>
+        )}
+        <button type="submit" disabled={!value.trim()}
+          style={{ marginTop:"20px", width:"100%", background:T.navy,
+            border:"none", color:"#fff", padding:"12px 28px", fontSize:"14px",
+            fontWeight:"600", borderRadius:"4px",
+            cursor: value.trim() ? "pointer" : "not-allowed",
+            opacity: value.trim() ? 1 : 0.5,
+            fontFamily:FONT_BODY, letterSpacing:"0.02em" }}>
+          Unlock
+        </button>
+        <div style={{ marginTop:"18px", fontSize:"12px", color:T.text3,
+          lineHeight:"1.5" }}>
+          Don't have a token? This app is single-user. Contact the operator.
+        </div>
+      </form>
+    </div>
+  );
+}
 
 /* -- IDLE -------------------------------------------------- */
 function IdleScreen({ onScan, error }) {
@@ -660,6 +742,8 @@ export default function CongressIntel() {
   const [allResults,     setAllResults]     = useState([]);
   const [error,          setError]          = useState("");
   const [isMobile,       setIsMobile]       = useState(false);
+  const [hasToken,       setHasToken]       = useState(() => Boolean(getStoredToken()));
+  const [tokenError,     setTokenError]     = useState("");
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 680);
@@ -707,7 +791,15 @@ Use the real party affiliations provided. Be accurate with state and committee a
       const data = parsed.trades || parsed;
       setTrades(data); setSelected(new Set()); setPhase("quickscan");
       save({ phase:"quickscan", trades:data });
-    } catch (e) { setError("Scan failed: " + e.message); setPhase("idle"); }
+    } catch (e) {
+      if (e instanceof UnauthorizedError) {
+        setHasToken(false);
+        setTokenError("That token didn't work. Try again.");
+        setPhase("idle");
+        return;
+      }
+      setError("Scan failed: " + e.message); setPhase("idle");
+    }
   };
 
   const runDeepAnalysis = async () => {
@@ -726,16 +818,42 @@ Use the real party affiliations provided. Be accurate with state and committee a
         ["Trading intelligence analyst. Direct and actionable.", `Verdict and retail action guide:\n${ctx}\nInsider Risk: ${trade.score}/10.\n\nFormat:\nVERDICT: [FOLLOW / MONITOR / AVOID] \u2014 brief reason\n\nRETAIL TIMING: when to act\n\nENTRY STRATEGY: price range, position size, catalyst\n\nKEY RISKS:\n\u2022 risk 1\n\u2022 risk 2\n\u2022 risk 3\n\nEXIT TARGET: timeline and level`],
       ];
       const sr = {};
+      let aborted = false;
       for (let i = 0; i < prompts.length; i++) {
         setPipelineStep(i+1);
         try { sr[STEPS[i].key] = await callAnalyze(prompts[i][0], prompts[i][1], "gpt-4o"); }
-        catch { sr[STEPS[i].key] = "Analysis unavailable for this step."; }
+        catch (e) {
+          if (e instanceof UnauthorizedError) {
+            setHasToken(false);
+            setTokenError("That token didn't work. Try again.");
+            setPhase("idle");
+            aborted = true;
+            break;
+          }
+          sr[STEPS[i].key] = "Analysis unavailable for this step.";
+        }
         setPipelineResults({...sr});
       }
+      if (aborted) return;
       results.push({ trade, analysis:{...sr} });
     }
     setAllResults(results); setPhase("results");
     save({ phase:"results", trades, allResults:results });
+  };
+
+  const signOut = () => {
+    setStoredToken("");
+    setHasToken(false);
+    setTokenError("");
+    setPhase("idle"); setTrades([]); setSelected(new Set());
+    setAllResults([]); setError(""); setPipelineResults({});
+    try { localStorage.removeItem("ci_v4"); } catch {}
+  };
+
+  const submitToken = (t) => {
+    setStoredToken(t);
+    setHasToken(true);
+    setTokenError("");
   };
 
   const reset = () => {
@@ -743,6 +861,10 @@ Use the real party affiliations provided. Be accurate with state and committee a
     setAllResults([]); setError(""); setPipelineResults({});
     try { localStorage.removeItem("ci_v4"); } catch {}
   };
+
+  if (!hasToken) {
+    return <TokenGate onSubmit={submitToken} error={tokenError}/>;
+  }
 
   return (
     <div style={{ background:T.bg, minHeight:"100vh",
@@ -780,15 +902,25 @@ Use the real party affiliations provided. Be accurate with state and committee a
               </span>
             </div>
           </div>
-          {phase !== "idle" && (
-            <button onClick={reset}
-              style={{ background:"transparent", border:`1px solid ${T.borderHi}`,
-                color:T.text2, padding:"8px 18px", cursor:"pointer",
-                fontSize:"13px", borderRadius:"4px",
-                fontFamily:FONT_BODY, fontWeight:"500" }}>
-              {"\u21BA"} Reset
+          <div style={{ display:"flex", gap:"8px", alignItems:"center" }}>
+            {phase !== "idle" && (
+              <button onClick={reset}
+                style={{ background:"transparent", border:`1px solid ${T.borderHi}`,
+                  color:T.text2, padding:"8px 18px", cursor:"pointer",
+                  fontSize:"13px", borderRadius:"4px",
+                  fontFamily:FONT_BODY, fontWeight:"500" }}>
+                {"\u21BA"} Reset
+              </button>
+            )}
+            <button onClick={signOut}
+              title="Clear access token from this browser"
+              style={{ background:"transparent", border:"none",
+                color:T.text3, padding:"8px 4px", cursor:"pointer",
+                fontSize:"12px", fontFamily:FONT_BODY,
+                textDecoration:"underline" }}>
+              Sign out
             </button>
-          )}
+          </div>
         </div>
 
         {phase==="idle"      && <IdleScreen onScan={runQuickScan} error={error}/>}

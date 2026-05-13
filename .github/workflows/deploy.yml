@@ -34,7 +34,8 @@ jobs:
         working-directory: congressintel
         env:
           VITE_WORKER_URL: ${{ secrets.VITE_WORKER_URL }}
-          VITE_APP_TOKEN: ${{ secrets.VITE_APP_TOKEN }}
+          # VITE_APP_TOKEN removed: the token is now entered in-app and stored in
+          # the user's localStorage, never embedded in the production bundle.
         run: npm run build
 
       - uses: actions/configure-pages@v4

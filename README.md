@@ -1,6 +1,6 @@
 # CongressIntel
 
-U.S. Congressional Trading Intelligence System. Two-tier AI pipeline that scores congressional stock disclosures for insider risk potential.
+U.S. Congressional Trading Intelligence System. Two-tier AI pipeline that scores congressional stock disclosures for insider-risk potential. Trade data comes from [Quiver Quant](https://api.quiverquant.com/). Live valuation data on the deep-analysis pipeline comes from Yahoo Finance.
 
 ## Architecture
 
@@ -32,13 +32,13 @@ npx wrangler secret put APP_TOKEN
 
 Create `congressintel/.env`:
 ```
-VITE_APP_TOKEN=ci-henry-2026
 VITE_WORKER_URL=http://localhost:8787
 ```
 
-For production, set the same values as **GitHub repo secrets** (Settings > Secrets and variables > Actions):
-- `VITE_APP_TOKEN` — same value as `APP_TOKEN` in Cloudflare
+For production, set the same value as a **GitHub repo secret** (Settings > Secrets and variables > Actions):
 - `VITE_WORKER_URL` — your deployed worker URL (e.g. `https://congressintel-api.your-subdomain.workers.dev`)
+
+**Access token:** Not an env var anymore. On first visit, the app prompts for the token (the same string as `APP_TOKEN` on the Worker) and stores it in `localStorage`. It is never embedded in the production JS bundle. Click "Sign out" in the header to clear it from this browser.
 
 ### GitHub Pages
 
@@ -79,14 +79,16 @@ npm run dev
 ### 3. Deploy Frontend
 
 Push to `main` and GitHub Actions auto-deploys to GitHub Pages. Make sure you've:
-1. Set `VITE_WORKER_URL` and `VITE_APP_TOKEN` as GitHub repo secrets
+1. Set `VITE_WORKER_URL` as a GitHub repo secret
 2. Enabled GitHub Pages with source set to "GitHub Actions"
+
+If you previously had a `VITE_APP_TOKEN` repo secret, you can delete it — the build no longer reads it. The access token now lives only in users' browsers (`localStorage`), not in the production bundle.
 
 ## How It Works
 
-**Quick Scan** — Fetches real congressional stock disclosures from House and Senate Stock Watcher feeds, then scores each trade with GPT-4o-mini for insider risk signals.
+**Quick Scan** — Fetches real congressional stock disclosures from Quiver Quant's `live/congresstrading` feed, then scores each trade with GPT-4o-mini for insider risk signals. Real fields (member, ticker, amount, dates, party, chamber) come from Quiver. State, committee, sector, and risk score are AI-inferred.
 
-**Deep Analysis** — Six-step pipeline (GPT-4o) for selected trades: committee roles, legislative influence, trade sizing, news context, valuation snapshot, and retail action guidance.
+**Deep Analysis** — Six-step pipeline (GPT-4o) for selected trades: committee roles, legislative influence, trade sizing, news context, valuation snapshot, and retail action guidance. The valuation step is augmented server-side with live market data (current price, % change today, 52-week range) from Yahoo Finance — GPT does not invent prices.
 
 ## Disclaimer
 
