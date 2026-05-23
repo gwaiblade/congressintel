@@ -45,6 +45,7 @@ Canonical spec: `context-brain/working/congressintel/SPEC_CongressIntel.md` (arc
 2. **Yahoo Finance User-Agent.** Worker fetch to `query1.finance.yahoo.com` hardcodes `User-Agent: Mozilla/5.0 (compatible; CongressIntel/1.0)`. Don't remove — Cloudflare Workers' default UA gets 401'd.
 3. **Valuation-step prompt-sniff coupling.** Worker matches `/^Valuation and technical snapshot for ([A-Z0-9.\-]{1,10}):/` against the user prompt to inject live price data. Changing the frontend step-5 prompt wording in `congressintel/src/App.jsx` silently disables injection. Keep them in sync, or refactor to an explicit `step`/`ticker` body field. See SPEC §10.
 4. **wrangler dev bundle cache.** When code changes don't appear live, check `worker/.wrangler/tmp/dev-*/index.js` — this cache is also authoritative and was the recovery path during the sync-race incident.
+5. **Credential-logging defense-in-depth not implemented (low risk, header-only).** OpenAI key is transmitted via `Authorization: Bearer ${env.OPENAI_API_KEY}` header in `worker/src/index.js`, not via URL or query string, so the high-risk URL-leak pattern (Muninn 2026-05-19) does not apply here. However, per `context-brain/input/Protocols/PROTOCOL_credential_logging.md` §5, header-based credentials still warrant a defense-in-depth scrub filter — third-party libraries occasionally log full request objects. Flag if logging behavior changes, error-handling around the OpenAI fetch expands, or a new URL/query-credential API is added (e.g. Polygon).
 
 ## Escalate-to-Henry triggers
 
