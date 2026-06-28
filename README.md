@@ -1,6 +1,6 @@
 # CongressIntel
 
-U.S. Congressional Trading Intelligence System. Two-tier AI pipeline that scores congressional stock disclosures for insider-risk potential. Trade data comes from [Quiver Quant](https://api.quiverquant.com/). Live valuation data on the deep-analysis pipeline comes from Yahoo Finance.
+U.S. Congressional Trading Intelligence System. Two-tier AI pipeline that scores congressional stock disclosures for insider-risk potential. Trade data comes from official [House Clerk PTR filings](https://disclosures-clerk.house.gov) (House only), parsed into a static dataset by a GitHub Action. Live valuation data on the deep-analysis pipeline comes from Yahoo Finance.
 
 ## Architecture
 
@@ -86,7 +86,7 @@ If you previously had a `VITE_APP_TOKEN` repo secret, you can delete it — the 
 
 ## How It Works
 
-**Quick Scan** — Fetches real congressional stock disclosures from Quiver Quant's `live/congresstrading` feed, then scores each trade with GPT-4o-mini for insider risk signals. Real fields (member, ticker, amount, dates, party, chamber) come from Quiver. State, committee, sector, and risk score are AI-inferred.
+**Quick Scan** — Fetches real congressional stock disclosures from a static `trades.json` dataset (built from House Clerk PTR filings by a GitHub Action), then scores each trade with GPT-4o-mini for insider risk signals. Real fields (member, ticker, amount, dates, state) come from the House Clerk filings; party, committee, sector, and risk score are AI-inferred (chamber is always House).
 
 **Deep Analysis** — Six-step pipeline (GPT-4o) for selected trades: committee roles, legislative influence, trade sizing, news context, valuation snapshot, and retail action guidance. The valuation step is augmented server-side with live market data (current price, % change today, 52-week range) from Yahoo Finance — GPT does not invent prices.
 

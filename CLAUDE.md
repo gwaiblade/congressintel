@@ -39,9 +39,7 @@ Canonical spec: `context-brain/working/congressintel/SPEC_CongressIntel.md` (arc
 
 ## Known footguns
 
-1. **Dropbox CloudStorage sync race.** This workspace lives under `~/Library/CloudStorage/Dropbox/`. Edits to `worker/src/index.js` have been silently reverted at least once (April–May 2026; full incident in SPEC §10). Mitigations:
-   - After editing worker source, confirm `git status` shows the file as modified before stepping away.
-   - If `git status` is unexpectedly clean after edits, check `worker/.wrangler/tmp/dev-*/index.js` for the latest bundled version and re-apply.
+1. **Dropbox sync race (RESOLVED 2026-05 — historical).** Workspace was migrated out of Dropbox CloudStorage to `~/Code/congressintel/`; the sync-race that silently reverted `worker/src/index.js` (April–May 2026; full incident in SPEC §10) no longer applies. Recovery technique remains generally useful: if `git status` is unexpectedly clean after editing worker source, check `worker/.wrangler/tmp/dev-*/index.js` for the latest bundled version.
 2. **Yahoo Finance User-Agent.** Worker fetch to `query1.finance.yahoo.com` hardcodes `User-Agent: Mozilla/5.0 (compatible; CongressIntel/1.0)`. Don't remove — Cloudflare Workers' default UA gets 401'd.
 3. **Valuation-step prompt-sniff coupling.** Worker matches `/^Valuation and technical snapshot for ([A-Z0-9.\-]{1,10}):/` against the user prompt to inject live price data. Changing the frontend step-5 prompt wording in `congressintel/src/App.jsx` silently disables injection. Keep them in sync, or refactor to an explicit `step`/`ticker` body field. See SPEC §10.
 4. **wrangler dev bundle cache.** When code changes don't appear live, check `worker/.wrangler/tmp/dev-*/index.js` — this cache is also authoritative and was the recovery path during the sync-race incident.
@@ -58,4 +56,3 @@ Stop and ask before doing any of the following:
 - Re-introducing `VITE_APP_TOKEN` as a build env var.
 - Force-push or history-rewrite on `main`.
 - Worker deploy when `git status` is unexpectedly clean after recent edits (suspected Dropbox revert).
-- Migrating the workspace out of Dropbox CloudStorage (path changes have cross-workspace map implications — see `~/.claude/CLAUDE.md`).
