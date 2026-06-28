@@ -744,6 +744,21 @@ export default function CongressIntel() {
   const [isMobile,       setIsMobile]       = useState(false);
   const [hasToken,       setHasToken]       = useState(() => Boolean(getStoredToken()));
   const [tokenError,     setTokenError]     = useState("");
+  const [dataFresh,      setDataFresh]      = useState(null);
+
+  // Data-freshness badge: when was trades.json last crawled? trades.json has no
+  // embedded metadata, so source the timestamp from GitHub's commits API.
+  // Fails silent — badge just won't render. (api.github.com: permissive CORS,
+  // 60/hr unauthenticated, one call per load — non-issue.)
+  useEffect(() => {
+    fetch("https://api.github.com/repos/gwaiblade/congressintel/commits?path=congressintel/public/trades.json&per_page=1")
+      .then((r) => r.json())
+      .then((d) => {
+        const iso = d?.[0]?.commit?.committer?.date;
+        if (iso) setDataFresh(new Date(iso));
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 680);
@@ -900,6 +915,16 @@ Infer each member's party (R/D) from their name and known congressional record. 
                 background:T.surface2, color:T.text3, border:`1px solid ${T.border}` }}>
                 Not Financial Advice
               </span>
+            </div>
+            <div style={{ fontSize:"11px", color:T.text3, marginTop:"8px",
+              lineHeight:"1.6" }}>
+              House disclosures only {"·"} Senate eFD not covered
+              {dataFresh && (
+                <>
+                  {" · "}Data current as of {dataFresh.toLocaleDateString("en-SG",
+                    { day:"numeric", month:"short", year:"numeric" })}
+                </>
+              )}
             </div>
           </div>
           <div style={{ display:"flex", gap:"8px", alignItems:"center" }}>
