@@ -1,4 +1,6 @@
-const QUIVER_URL = 'https://api.quiverquant.com/beta/live/congresstrading';
+// House trades are produced by the manually-triggered GitHub Action (.github/workflows/fetch-trades.yml)
+// and served as a static file from GitHub Pages. No auth needed on this GET — it's public data.
+const TRADES_JSON_URL = 'https://gwaiblade.github.io/congressintel/trades.json';
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
 const YAHOO_CHART_URL = 'https://query1.finance.yahoo.com/v8/finance/chart';
 
@@ -40,46 +42,26 @@ function parseDate(str) {
   return null;
 }
 
-function daysBetween(a, b) {
-  if (!a || !b || isNaN(a.getTime()) || isNaN(b.getTime())) return 0;
-  return Math.round(Math.abs(a - b) / (1000 * 60 * 60 * 24));
-}
-
 async function fetchTrades(days) {
-  const now = new Date();
-  const cutoff = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-  const res = await fetch(QUIVER_URL, {
+  // Pull the pre-parsed static feed. Edge-cache for 5 min: it only changes once daily.
+  const res = await fetch(TRADES_JSON_URL, {
     headers: { 'Accept': 'application/json' },
+    cf: { cacheTtl: 300, cacheEverything: true },
+  });
+  if (!res.ok) throw new Error(`trades.json fetch error: ${res.status}`);
+
+  const all = await res.json();
+  if (!Array.isArray(all)) throw new Error('trades.json malformed');
+
+  // Records arrive already normalized (member, chamber, party, state, ticker, company,
+  // type, amount, transactionDate, disclosureDate, daysLate). Filter by disclosure window.
+  const trades = all.filter((t) => {
+    const disc = parseDate(t.disclosureDate);
+    return disc && disc >= cutoff && t.ticker && t.ticker !== '--';
   });
 
-  if (!res.ok) throw new Error(`Quiver API error: ${res.status}`);
-
-  const data = await res.json();
-  const trades = [];
-
-  for (const t of data) {
-    const disc = parseDate(t.ReportDate);
-    const trans = parseDate(t.TransactionDate);
-    if (!disc || disc < cutoff) continue;
-    if (!t.Ticker || t.Ticker === '--' || t.Ticker === 'N/A') continue;
-
-    trades.push({
-      member: (t.Representative || '').trim(),
-      chamber: t.House === 'Senate' ? 'Senate' : 'House',
-      party: t.Party || '',
-      state: '',
-      ticker: t.Ticker.toUpperCase(),
-      company: t.Description || t.Ticker,
-      type: /purchase/i.test(t.Transaction) ? 'Buy' : 'Sell',
-      amount: t.Range || '',
-      transactionDate: t.TransactionDate || '',
-      disclosureDate: t.ReportDate || '',
-      daysLate: daysBetween(disc, trans),
-    });
-  }
-
-  // Sort by disclosure date descending
   trades.sort((a, b) => {
     const da = parseDate(a.disclosureDate) || new Date(0);
     const db = parseDate(b.disclosureDate) || new Date(0);
@@ -228,8 +210,9 @@ export default {
         const days = Math.min(parseInt(url.searchParams.get('days') || '30', 10) || 30, 365);
         const trades = await fetchTrades(days);
         return jsonResponse(trades, 200, request);
-      } catch (e) {
-        return jsonResponse({ error: 'Failed to fetch trades', detail: e.message }, 500, request);
+      } catch {
+        // Static feed unreachable/malformed — surface as an outage, not "no trades" (C6).
+        return jsonResponse({ error: 'data unavailable' }, 503, request);
       }
     }
 

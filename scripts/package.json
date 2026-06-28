@@ -1,0 +1,14 @@
+{
+  "name": "congressintel-scripts",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "CI-only ingestion scripts for House Clerk financial disclosures. NOT part of the worker or the shipped frontend bundle — these deps never reach production.",
+  "scripts": {
+    "fetch-trades": "node fetch-house-trades.mjs"
+  },
+  "dependencies": {
+    "fast-xml-parser": "^4.5.0",
+    "pdfjs-dist": "^4.7.76"
+  }
+}

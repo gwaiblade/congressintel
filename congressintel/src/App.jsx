@@ -768,14 +768,14 @@ export default function CongressIntel() {
   const runQuickScan = async () => {
     setPhase("scanning"); setError("");
     try {
-      // Fetch real trades from Quiver Quant via worker
+      // Fetch real trades from House Clerk disclosures via worker
       const rawTrades = await fetchTrades(30);
       if (!rawTrades.length) throw new Error("No recent trades found in disclosure feeds.");
 
       // Score trades with AI — enrich with state, committee, sector, risk score
       const text = await callAnalyze(
         "You are a U.S. congressional trading intelligence analyst. Score real congressional stock disclosures for insider risk. Return ONLY a valid JSON object.",
-        `Score these real congressional stock trades for insider risk potential. Each trade already has member name, party, chamber, ticker, type, amount, and filing dates. For each trade, add the member's state (2-letter), most relevant committee assignment, the stock's sector, and assign an insider risk score from 1.0 to 10.0 based on: committee relevance to the traded sector, trade size, filing delay, and timing signals.
+        `Score these real congressional stock trades for insider risk potential. Each trade already has member name, chamber, ticker, type, amount, and filing dates. For each trade, infer the member's party (R or D) from their name and known congressional record, and add the member's state (2-letter), most relevant committee assignment, the stock's sector, and assign an insider risk score from 1.0 to 10.0 based on: committee relevance to the traded sector, trade size, filing delay, and timing signals.
 
 Real trades data:
 ${JSON.stringify(rawTrades.slice(0, 12))}
@@ -783,7 +783,7 @@ ${JSON.stringify(rawTrades.slice(0, 12))}
 Return a JSON object with this exact structure:
 {"trades":[{"id":<sequential 1-N>,"member":"<name>","party":"<R|D>","chamber":"<House|Senate>","state":"<2-letter>","committee":"<most relevant committee>","ticker":"<TICKER>","company":"<company name>","sector":"<sector>","type":"<Buy|Sell>","amount":"<amount range>","disclosedDate":"<YYYY-MM-DD>","daysLate":<number>,"score":<1.0-10.0>,"scoreReason":"<one sentence>"}]}
 
-Use the real party affiliations provided. Be accurate with state and committee assignments. Score honestly based on the actual risk signals in the data.`,
+Infer each member's party (R/D) from their name and known congressional record. Be accurate with state and committee assignments. Score honestly based on the actual risk signals in the data.`,
         "gpt-4o-mini",
         true
       );

@@ -1,0 +1,70 @@
+name: Fetch House trades
+
+on:
+  workflow_dispatch: {} # manual trigger only — no scheduled automation
+
+# contents:write lets us commit the refreshed trades.json; pages/id-token let this
+# workflow deploy Pages itself. A push made with GITHUB_TOKEN does NOT trigger the
+# separate deploy.yml workflow (GitHub's recursion guard), so we build + deploy here.
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+# Serialize with deploy.yml's Pages deployments; never cancel an in-flight deploy.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  fetch-and-publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install ingestion deps
+        working-directory: scripts
+        run: npm install
+
+      - name: Fetch + parse House disclosures
+        working-directory: scripts
+        run: npm run fetch-trades
+
+      - name: Commit refreshed trades.json (if changed)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add congressintel/public/trades.json
+          if git diff --cached --quiet; then
+            echo "No trade changes to commit."
+          else
+            git commit -m "Update House trades data [skip ci]"
+            git push
+          fi
+
+      - name: Install frontend deps
+        working-directory: congressintel
+        run: npm install
+
+      - name: Build frontend (bundles public/trades.json into dist)
+        working-directory: congressintel
+        env:
+          VITE_WORKER_URL: ${{ secrets.VITE_WORKER_URL }}
+        run: npm run build
+
+      - uses: actions/configure-pages@v4
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: congressintel/dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
