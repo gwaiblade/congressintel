@@ -1,1 +1,0 @@
-../context-brain/governance/SECURITY_GUIDANCE.md

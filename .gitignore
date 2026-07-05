@@ -7,3 +7,5 @@ dist/
 .dev.vars
 *.log
 .DS_Store
+# local-only symlink to context-brain canon; dangles in build envs (canon step 7)
+SECURITY_GUIDANCE.md
